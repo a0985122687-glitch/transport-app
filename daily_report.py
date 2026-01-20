@@ -12,19 +12,24 @@ st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden
 
 st.title("🚚 運輸日報表輸入")
 
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-try:
-    # 1. 連線 Google Sheets
+# --- 核心：快取連線，避免頻繁讀取 API ---
+@st.cache_resource
+def get_gspread_client():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    sh = client.open("Transport_System_2026")
+    return gspread.authorize(creds)
+
+@st.cache_data(ttl=600) # 每 10 分鐘 (600秒) 才重新抓一次資料
+def get_data_from_sheet(sheet_name):
+    client = get_gspread_client()
+    sh = client.open(sheet_name)
     sheet = sh.get_worksheet(0)
-    
-    # 讀取現有資料
-    data = sheet.get_all_records()
-    df = pd.DataFrame(data)
+    return pd.DataFrame(sheet.get_all_records()), sheet
+
+try:
+    # 使用快取抓取資料
+    df, sheet = get_data_from_sheet("Transport_System_2026")
 
     # 2. 司機選擇
     driver_list = ["請選擇司機", "司機A", "司機B", "車號001"]
@@ -35,7 +40,6 @@ try:
         
         # --- 基本時間資訊 ---
         input_date = st.date_input("日期", datetime.now())
-        
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             start_time = st.text_input("上班時間", value="05:00")
@@ -76,26 +80,14 @@ try:
                 actual_dist = m_end - m_start
                 total_plates = p_sent + p_recv
                 
-                # 嚴格對齊您的 A~O 欄位順序 (加入下班時間後順延)
                 new_row = [
-                    selected_driver,    # A 司機
-                    str(input_date),    # B 日期
-                    start_time,         # C 上班時間
-                    end_time,           # D 下班時間
-                    route_name,         # E 路線別
-                    m_start,            # F 里程起
-                    m_end,              # G 里程迄
-                    actual_dist,        # H 實際里程
-                    p_sent,             # I 總送板數
-                    p_recv,             # J 總收板數
-                    total_plates,       # K 合計收送板數
-                    basket_back,        # L 空籃回收
-                    plate_back,         # M 空板回收
-                    detail_content,     # N 詳細配送內容
-                    input_remark        # O 備註
+                    selected_driver, str(input_date), start_time, end_time, route_name,
+                    m_start, m_end, actual_dist, p_sent, p_recv, 
+                    total_plates, basket_back, plate_back, detail_content, input_remark
                 ]
                 sheet.append_row(new_row)
-                st.success(f"存檔成功！今日共行駛 {actual_dist} 公里")
+                st.cache_data.clear() # 送出後清除快取，確保下次能抓到最新的上一筆里程
+                st.success("存檔成功！")
                 st.balloons()
                 st.rerun()
 
@@ -103,12 +95,8 @@ try:
     st.divider()
     st.subheader("📋 最近紀錄預覽")
     if not df.empty:
-        # 這裡也把下班時間放進預覽，方便確認工時
         display_cols = ['司機', '日期', '上班時間', '下班時間', '路線別', '實際里程']
-        if all(c in df.columns for c in display_cols):
-            st.dataframe(df[display_cols].tail(5), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df.tail(5), use_container_width=True, hide_index=True)
+        st.dataframe(df[display_cols].tail(5), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"系統錯誤：{e}")
+    st.error(f"系統暫時繁忙，請稍候再試：{e}")
