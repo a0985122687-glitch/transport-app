@@ -26,7 +26,7 @@ try:
     data = sheet.get_all_records()
     df = pd.DataFrame(data)
 
-    # 2. 司機選擇 (放在最上方)
+    # 2. 司機選擇
     driver_list = ["請選擇", "司機A", "司機B", "車號001"]
     selected_driver = st.selectbox("👤 選擇填報人", driver_list)
 
@@ -43,7 +43,7 @@ try:
         m_start = st.number_input("里程(起)", value=last_m)
         m_end = st.number_input("里程(迄)", value=last_m)
         
-        # 貨物與空容器 (左右併排節省空間)
+        # 貨物與空容器
         col1, col2 = st.columns(2)
         with col1:
             p_sent = st.number_input("總送板數", value=0, step=1)
@@ -52,27 +52,31 @@ try:
             p_recv = st.number_input("總收板數", value=0, step=1)
             plate_back = st.number_input("空板回收", value=0, step=1)
         
-        detail_content = st.text_area("詳細配送內容", placeholder="例如：客戶 1(送10/收0)...")
+        # 輸入區依然保留，但不會顯示在下方的預覽表格中
+        detail_content = st.text_area("詳細配送內容", placeholder="此處內容僅會存入 Excel，不會顯示在下方預覽中...")
         input_remark = st.text_input("備註 (選填)")
 
         # 3. 確認送出按鈕
         if st.button("🚀 確認送出資料", use_container_width=True):
             actual_dist = m_end - m_start
-            # 依照您新的 Excel 欄位順序 (A欄為司機)
             new_row = [
                 selected_driver, str(input_date), input_time, "", 
                 m_start, m_end, actual_dist, p_sent, p_recv, 
                 (p_sent + p_recv), basket_back, plate_back, detail_content, input_remark
             ]
             sheet.append_row(new_row)
-            st.success(f"存檔成功！已記錄至 {selected_driver} 的名下")
+            st.success("存檔成功！")
             st.rerun()
 
-    # 4. 最近紀錄預覽
+    # 4. 報表預覽 (優化：隱藏密密麻麻的詳細資料)
     st.divider()
     st.subheader("📋 最近 5 筆紀錄")
     if not df.empty:
-        st.dataframe(df.tail(5), use_container_width=True, hide_index=True)
+        # 這裡我們挑選想要顯示的欄位就好，避開「詳細配送內容」與「備註」
+        display_columns = ['司機', '日期', '上班時間', '里程起', '里程迄', '實際里程', '總送板數', '總收板數']
+        # 確保這些欄位在 Excel 中都存在
+        df_display = df[display_columns].tail(5) if all(c in df.columns for c in display_columns) else df.tail(5)
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"系統錯誤：{e}")
