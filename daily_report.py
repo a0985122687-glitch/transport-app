@@ -36,7 +36,10 @@ try:
         input_date = st.date_input("日期", datetime.now())
         input_time = st.text_input("上班時間", value="05:00")
         
-        # 里程自動連動：只找這位司機的上一筆里程
+        # --- 找回路線別輸入 ---
+        route_name = st.text_input("路線別", placeholder="例如：北區 A 線、台中專車...")
+        
+        # 里程自動連動
         driver_df = df[df['司機'] == selected_driver] if not df.empty and '司機' in df.columns else pd.DataFrame()
         last_m = int(driver_df.iloc[-1]['里程迄']) if not driver_df.empty else 0
         
@@ -52,31 +55,34 @@ try:
             p_recv = st.number_input("總收板數", value=0, step=1)
             plate_back = st.number_input("空板回收", value=0, step=1)
         
-        # 輸入區依然保留，但不會顯示在下方的預覽表格中
-        detail_content = st.text_area("詳細配送內容", placeholder="此處內容僅會存入 Excel，不會顯示在下方預覽中...")
+        detail_content = st.text_area("詳細配送內容 (僅存入 Excel)")
         input_remark = st.text_input("備註 (選填)")
 
         # 3. 確認送出按鈕
         if st.button("🚀 確認送出資料", use_container_width=True):
             actual_dist = m_end - m_start
+            # 確保寫入順序與 Excel 欄位對齊：司機, 日期, 上班時間, 路線別, 里程起...
             new_row = [
-                selected_driver, str(input_date), input_time, "", 
+                selected_driver, str(input_date), input_time, route_name, 
                 m_start, m_end, actual_dist, p_sent, p_recv, 
                 (p_sent + p_recv), basket_back, plate_back, detail_content, input_remark
             ]
             sheet.append_row(new_row)
-            st.success("存檔成功！")
+            st.success(f"存檔成功！已記錄路線：{route_name}")
             st.rerun()
 
-    # 4. 報表預覽 (優化：隱藏密密麻麻的詳細資料)
+    # 4. 報表預覽 (顯示路線別，隱藏長文字)
     st.divider()
     st.subheader("📋 最近 5 筆紀錄")
     if not df.empty:
-        # 這裡我們挑選想要顯示的欄位就好，避開「詳細配送內容」與「備註」
-        display_columns = ['司機', '日期', '上班時間', '里程起', '里程迄', '實際里程', '總送板數', '總收板數']
-        # 確保這些欄位在 Excel 中都存在
-        df_display = df[display_columns].tail(5) if all(c in df.columns for c in display_columns) else df.tail(5)
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        # 這次把 '路線別' 加回顯示清單中
+        display_columns = ['司機', '日期', '路線別', '里程起', '里程迄', '實際里程', '總送板數', '總收板數']
+        
+        if all(c in df.columns for c in display_columns):
+            st.dataframe(df[display_columns].tail(5), use_container_width=True, hide_index=True)
+        else:
+            # 如果欄位名稱還沒完全對齊，先顯示全表
+            st.dataframe(df.tail(5), use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"系統錯誤：{e}")
