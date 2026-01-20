@@ -7,7 +7,7 @@ from datetime import datetime
 # 手機版佈局優化
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
-# 隱藏預設選單與頁尾
+# 隱藏預設選單
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 st.title("🚚 運輸日報表輸入")
@@ -33,19 +33,20 @@ try:
     if selected_driver != "請選擇司機":
         st.divider()
         
-        # --- A 欄 & B 欄 & C 欄 & D 欄 ---
+        # --- 基本時間資訊 ---
         input_date = st.date_input("日期", datetime.now())
         
         col_t1, col_t2 = st.columns(2)
         with col_t1:
-            input_time = st.text_input("上班時間", value="05:00")
+            start_time = st.text_input("上班時間", value="05:00")
         with col_t2:
-            # 將路線別改為下拉選單
-            route_options = ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"]
-            route_name = st.selectbox("路線別", route_options)
+            end_time = st.text_input("下班時間", value="17:00")
         
-        # --- E 欄 & F 欄 (里程) ---
-        # 自動抓取該司機上次的里程迄點
+        # --- 路線選擇 ---
+        route_options = ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"]
+        route_name = st.selectbox("路線別", route_options)
+        
+        # --- 里程自動連動 ---
         driver_df = df[df['司機'] == selected_driver] if not df.empty and '司機' in df.columns else pd.DataFrame()
         last_m = int(driver_df.iloc[-1]['里程迄']) if not driver_df.empty else 0
         
@@ -55,7 +56,7 @@ try:
         with col_m2:
             m_end = st.number_input("里程(迄)", value=last_m)
         
-        # --- H 欄 ~ L 欄 (板數與空籃) ---
+        # --- 板數與空籃回收 ---
         col_p1, col_p2 = st.columns(2)
         with col_p1:
             p_sent = st.number_input("總送板數", value=0, step=1)
@@ -64,7 +65,6 @@ try:
             p_recv = st.number_input("總收板數", value=0, step=1)
             plate_back = st.number_input("空板回收", value=0, step=1)
         
-        # --- M 欄 & N 欄 (詳細內容與備註) ---
         detail_content = st.text_area("詳細配送內容 (僅存入 Excel)")
         input_remark = st.text_input("備註 (選填)")
 
@@ -76,25 +76,26 @@ try:
                 actual_dist = m_end - m_start
                 total_plates = p_sent + p_recv
                 
-                # 嚴格對齊您的 A~N 欄位順序
+                # 嚴格對齊您的 A~O 欄位順序 (加入下班時間後順延)
                 new_row = [
                     selected_driver,    # A 司機
                     str(input_date),    # B 日期
-                    input_time,         # C 上班時間
-                    route_name,         # D 路線別
-                    m_start,            # E 里程起
-                    m_end,              # F 里程迄
-                    actual_dist,        # G 實際里程
-                    p_sent,             # H 總送板數
-                    p_recv,             # I 總收板數
-                    total_plates,       # J 合計收送板數
-                    basket_back,        # K 空籃回收
-                    plate_back,         # L 空板回收
-                    detail_content,     # M 詳細配送內容
-                    input_remark        # N 備註
+                    start_time,         # C 上班時間
+                    end_time,           # D 下班時間
+                    route_name,         # E 路線別
+                    m_start,            # F 里程起
+                    m_end,              # G 里程迄
+                    actual_dist,        # H 實際里程
+                    p_sent,             # I 總送板數
+                    p_recv,             # J 總收板數
+                    total_plates,       # K 合計收送板數
+                    basket_back,        # L 空籃回收
+                    plate_back,         # M 空板回收
+                    detail_content,     # N 詳細配送內容
+                    input_remark        # O 備註
                 ]
                 sheet.append_row(new_row)
-                st.success(f"存檔成功！已記錄路線：{route_name}")
+                st.success(f"存檔成功！今日共行駛 {actual_dist} 公里")
                 st.balloons()
                 st.rerun()
 
@@ -102,7 +103,8 @@ try:
     st.divider()
     st.subheader("📋 最近紀錄預覽")
     if not df.empty:
-        display_cols = ['司機', '日期', '路線別', '實際里程', '合計收送板數']
+        # 這裡也把下班時間放進預覽，方便確認工時
+        display_cols = ['司機', '日期', '上班時間', '下班時間', '路線別', '實際里程']
         if all(c in df.columns for c in display_cols):
             st.dataframe(df[display_cols].tail(5), use_container_width=True, hide_index=True)
         else:
