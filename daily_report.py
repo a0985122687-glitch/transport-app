@@ -42,7 +42,7 @@ def get_sheet_and_data():
         df.columns = df.columns.str.strip()
     return sheet, df
 
-# --- 3. 填報介面區 (依您指定的順序排列) ---
+# --- 3. 填報介面區 (依司機實際作業流程順序) ---
 driver_options = ["請選擇填報人", "司機A", "司機B", "司機C", "司機D"]
 selected_driver = st.selectbox("👤 填報人", driver_options)
 
@@ -58,31 +58,31 @@ if selected_driver != "請選擇填報人":
 
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
-    # 配送家數保留手動輸入
+    # 配送家數
     customer_count = st.number_input("🏠 配送家數", value=None, placeholder="輸入總家數", step=1)
 
     st.divider()
     
-    # 1. 里程(起) - 放在最上方
-    m_start = st.number_input("📈 1. 里程(起)", value=None, placeholder="出車前里程", step=1)
+    # 里程(起) - 放在最上方
+    m_start = st.number_input("📈 里程(起)", value=None, placeholder="出車前里程", step=1)
 
-    # 2-5. 板數與回收 (中間區域)
+    # 配送明細 (順序：送板 -> 收板 -> 空籃 -> 空板)
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        p_sent = st.number_input("🚚 2. 送板數", value=None, placeholder="輸入數量", step=1)
-        basket_count = st.number_input("🧺 4. 空籃數", value=None, placeholder="輸入數量", step=1)
+        p_sent = st.number_input("🚚 送板數", value=None, placeholder="輸入數量", step=1)
+        basket_count = st.number_input("🧺 空籃數", value=None, placeholder="輸入數量", step=1)
     with col_p2:
-        p_recv = st.number_input("📥 3. 收板數", value=None, placeholder="輸入數量", step=1)
-        plate_count = st.number_input("🔄 5. 空板數", value=None, placeholder="輸入數量", step=1)
+        p_recv = st.number_input("📥 收板數", value=None, placeholder="輸入數量", step=1)
+        plate_count = st.number_input("🔄 空板數", value=None, placeholder="輸入數量", step=1)
 
-    # 6. 里程(迄) - 放在最下方
-    m_end = st.number_input("📉 6. 里程(迄)", value=None, placeholder="收車後里程", step=1)
+    # 里程(迄) - 放在最下方
+    m_end = st.number_input("📉 里程(迄)", value=None, placeholder="收車後里程", step=1)
     
     remark = st.text_input("💬 備註")
 
     if st.button("🚀 確認送出報表", use_container_width=True):
         if route_name == "請選擇路線" or m_start is None or m_end is None:
-            st.warning("⚠️ 請務必填寫路線與里程！")
+            st.warning("⚠️ 請填妥路線與里程！")
         else:
             with st.spinner('同步中...'):
                 try:
@@ -92,23 +92,23 @@ if selected_driver != "請選擇填報人":
                     bc, pc = int(basket_count or 0), int(plate_count or 0)
                     cc = int(customer_count or 0)
                     
-                    # 按照 A-O 欄位順序寫入 [cite: 2026-01-21]
+                    # 按照 A-O 欄位順序寫入試算表 [cite: 2026-01-21]
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, int(m_start), int(m_end), actual_dist, ps, pr, ps+pr, bc, pc, cc, remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！已重置畫面。")
                     time.sleep(1)
-                    st.rerun() # 自動重置畫面歸零
+                    st.rerun() # 自動歸零
                 except Exception as e:
                     st.error(f"連線失敗：{e}")
 
-# --- 4. 進階效益分析 (對標 Excel 整數版) ---
+# --- 4. 統計分析區 (整數美化版) ---
 st.divider()
 if st.button("📊 查看路線效益分析"):
     with st.spinner('資料分析中...'):
         try:
             _, df = get_sheet_and_data()
             if not df.empty:
-                # 數值標準化處理 (確保移除小數點)
+                # 數值整數化處理
                 for c in ['實際里程', '送板', '收板', '合計板數']:
                     if c in df.columns:
                         df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(int)
@@ -126,15 +126,17 @@ if st.button("📊 查看路線效益分析"):
                     
                     analysis.columns = ['路線別', '趟次', '總里程', '合計板數']
                     analysis['均點板數'] = (analysis['合計板數'] / analysis['趟次']).round(0).astype(int)
-                    # 效益排名：合計板數越多排名越前面
+                    # 效益排名：合計板數越多排名越高
                     analysis['效益排名'] = analysis['合計板數'].rank(ascending=False, method='min').astype(int)
                     
                     st.subheader(f"📅 {this_month} 路線競爭力排名")
                     # 隱藏左側空白索引列
                     st.dataframe(analysis.sort_values('效益排名'), use_container_width=True, hide_index=True)
                     
-                    st.success(f"💰 當月預估獎金合計：{int(month_data['合計板數'].sum() * 40)} 元")
+                    # 獎金公式：合計板數*40, 空籃/2, 空板*3 [cite: 2026-01-21]
+                    # 注意：此處僅概算載運獎金，完整明細請見 Google Sheet
+                    st.success(f"💰 當月預估載運獎金合計：{int(month_data['合計板數'].sum() * 40)} 元")
                 else:
-                    st.warning("本月尚未有紀錄。")
+                    st.warning("本月尚無填報紀錄。")
         except Exception as e:
             st.error(f"分析失敗：{e}")
