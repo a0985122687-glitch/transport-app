@@ -5,38 +5,14 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與「底層級」美化隱藏
+# 1. 頁面配置與基本美化
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
-# 使用萬用選擇器 (*) 與強制屬性隱藏多餘按鈕
 st.markdown("""
     <style>
-    /* 1. 隱藏頂部標題列與 GitHub 圖示 */
-    header, [data-testid="stHeader"], .stAppHeader {
-        display: none !important;
-    }
-
-    /* 2. 徹底封鎖右下角所有浮動元件 (含紅色皇冠、藍綠圖示、選單) */
-    [data-testid="stStatusWidget"], 
-    .stDeployButton, 
-    #MainMenu, 
-    footer, 
-    div[class*="st-emotion-cache-"] > button {
-        display: none !important;
-    }
-
-    /* 3. 移除底部多餘的空白與浮動容器 */
-    [data-testid="stDecoration"], .st-emotion-cache-6q9sum, .st-emotion-cache-1avcm0n {
-        display: none !important;
-    }
-
-    /* 4. 讓填報畫面更貼近頂部，適合手機操作 */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 0rem !important;
-    }
-
-    /* 5. 藍色送出按鈕樣式 */
+    /* 隱藏頂部選單與頁尾，但不使用強力封鎖以避免內容消失 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -98,7 +74,7 @@ if selected_driver != "請選擇填報人":
                     sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
                     total_plates = p_sent + p_recv
-                    # 按照 A-O 欄位順序寫入試算表 [cite: 2026-01-21]
+                    # 按照 A-O 欄位順序寫入 [cite: 2026-01-21]
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, detail_content, remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
@@ -108,7 +84,7 @@ if selected_driver != "請選擇填報人":
                 except:
                     st.error("連線繁忙，請稍候。")
 
-# --- 4. 統計區 (含正確獎金公式) ---
+# --- 4. 統計區 (確認版公式) ---
 st.divider()
 if st.button("📊 查看當月獎金與統計 (點擊載入)"):
     with st.spinner('正在核算獎金...'):
@@ -120,11 +96,11 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值轉換，避免計算錯誤
+                    # 數值轉換
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
-                    # 您指定的獎金公式：合計板數*40, 空籃/2, 空板*3
+                    # 獎金公式：板數*40, 空籃/2, 空板*3 [cite: 2026-01-21]
                     month_data['載運獎金'] = month_data['合計收送板數'] * 40
                     month_data['空籃獎金'] = month_data['空籃回收'] / 2
                     month_data['空板獎金'] = month_data['空板回收'] * 3
