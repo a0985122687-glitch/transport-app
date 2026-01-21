@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面基本配置 (保留隱藏頂部與選單功能)
+# 1. 頁面配置
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
 st.markdown("""
@@ -13,6 +13,9 @@ st.markdown("""
     header[data-testid="stHeader"] { display: none !important; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    /* 隱藏數字輸入框右側的加減按鈕 */
+    button[step="1"] { display: none !important; }
+    input[type=number] { -moz-appearance: textfield; }
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -51,39 +54,45 @@ if selected_driver != "請選擇填報人":
 
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
+    # 需求：所有數字欄位預設為空白，無 0，無 +- 符號
     col_m1, col_m2 = st.columns(2)
     with col_m1:
-        # 需求 3：里程預設為空白，不帶正負號
         m_start = st.number_input("📈 里程(起)", value=None, placeholder="輸入起點里程")
     with col_m2:
         m_end = st.number_input("📉 里程(迄)", value=None, placeholder="輸入終點里程")
 
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        p_sent = st.number_input("送板數", value=0, step=1)
-        basket_back = st.number_input("空籃回收", value=0, step=1)
+        p_sent = st.number_input("送板數", value=None, placeholder="輸入數量")
+        basket_back = st.number_input("空籃回收", value=None, placeholder="輸入數量")
     with col_p2:
-        p_recv = st.number_input("收板數", value=0, step=1)
-        plate_back = st.number_input("空板回收", value=0, step=1)
+        p_recv = st.number_input("收板數", value=None, placeholder="輸入數量")
+        plate_back = st.number_input("空板回收", value=None, placeholder="輸入數量")
     
     remark = st.text_input("💬 備註")
 
     if st.button("🚀 確認送出報表", use_container_width=True):
         if route_name == "請選擇路線" or m_start is None or m_end is None:
-            st.warning("⚠️ 請完整填寫路線與里程！")
+            st.warning("⚠️ 請填寫路線與里程！")
         else:
             with st.spinner('同步至雲端中...'):
                 try:
                     sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
-                    total_plates = p_sent + p_recv
+                    # 處理 None 值確保計算不報錯
+                    ps = p_sent if p_sent is not None else 0
+                    pr = p_recv if p_recv is not None else 0
+                    bb = basket_back if basket_back is not None else 0
+                    pb = plate_back if plate_back is not None else 0
+                    
+                    total_plates = ps + pr
                     # 按照 A-O 欄位寫入
-                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, "", remark]
+                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, ps, pr, total_plates, bb, pb, "", remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
                     st.balloons()
                     time.sleep(1)
-                    # 需求 1：送出後自動重新整理歸零
+                    # 需求：確認送出後畫面自動歸零
                     st.rerun()
                 except Exception as e:
                     st.error(f"連線失敗：{e}")
@@ -91,7 +100,7 @@ if selected_driver != "請選擇填報人":
 # --- 4. 統計分析區 ---
 st.divider()
 if st.button("📊 查看統計與獎金 (點擊載入)"):
-    with st.spinner('正在從試算表讀取資料...'):
+    with st.spinner('正在讀取資料...'):
         try:
             _, df = get_sheet_and_data()
             if not df.empty:
@@ -100,32 +109,27 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值校正
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
-                    # 獎金計算公式
+                    # 獎金公式
                     month_data['載運獎金'] = month_data['合計收送板數'] * 40
                     month_data['空籃獎金'] = month_data['空籃回收'] / 2
                     month_data['空板獎金'] = month_data['空板回收'] * 3
                     month_data['合計獎金'] = month_data['載運獎金'] + month_data['空籃獎金'] + month_data['空板獎金']
 
                     st.subheader(f"📅 {this_month} 統計摘要")
-                    
-                    # 需求 5 & 7：當月趟數與合計板數
                     m1, m2 = st.columns(2)
                     m1.metric("當月趟數", f"{len(month_data)} 趟")
                     m2.metric("合計總板數", f"{int(month_data['合計收送板數'].sum())} 板")
 
-                    # 需求 6：按路線區分平均里程 (並移除小數點)
+                    # 平均里程顯示為整數
                     st.write("🛣️ 各路線平均里程 (整數)：")
                     avg_route = month_data.groupby('路線別')['實際里程'].mean().reset_index()
                     avg_route.columns = ['路線', '平均里程']
-                    # 將平均里程轉換為整數型態，移除小數點
                     avg_route['平均里程'] = avg_route['平均里程'].astype(int)
                     st.table(avg_route)
 
-                    # 顯示獎金總計與明細
                     st.success(f"💰 當月預估獎金合計：{int(month_data['合計獎金'].sum())} 元")
                     st.write("📋 獎金統計明細：")
                     show_cols = ['日期', '路線別', '合計收送板數', '載運獎金', '空籃獎金', '空板獎金', '合計獎金']
@@ -135,4 +139,4 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
             else:
                 st.info("目前雲端無資料。")
         except Exception as e:
-            st.error(f"讀取資料失敗：{e}")
+            st.error(f"讀取失敗：{e}")
