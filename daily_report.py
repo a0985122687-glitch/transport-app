@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面美化與配置
+# 1. 頁面配置
 st.set_page_config(page_title="運輸日報表", page_icon="🚚", layout="centered")
 
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}
@@ -19,19 +19,17 @@ def get_sheet_and_data():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
     client = gspread.authorize(creds)
     sheet = client.open("Transport_System_2026").get_worksheet(0)
-    # 抓取資料
     df = pd.DataFrame(sheet.get_all_records())
     return sheet, df
 
-# --- 填報介面 ---
+# --- 填報介面區 ---
 driver_list = ["請選擇填報人", "司機A", "司機B", "車號001"]
 selected_driver = st.selectbox("👤 填報人", driver_list)
 
 if selected_driver != "請選擇填報人":
     st.divider()
-    
-    # 填報項目
     input_date = st.date_input("📅 運送日期", datetime.now())
+    
     col1, col2 = st.columns(2)
     with col1:
         start_time = st.selectbox("🕔 上班時間", ["04:00", "04:30", "05:00", "05:30", "06:00", "06:30", "07:00", "07:30", "08:00"], index=2)
@@ -67,36 +65,47 @@ if selected_driver != "請選擇填報人":
                     sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
                     total_plates = p_sent + p_recv
+                    # 寫入資料
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, detail_content, input_remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
                     st.balloons()
                     time.sleep(2)
                     st.rerun()
-                except:
-                    st.error("系統繁忙，請稍候再試。")
+                except Exception as e:
+                    st.error(f"連線繁忙，請稍候再試。")
 
-# --- 強化版統計區 ---
+# --- 強化版統計區 (解決日期顯示問題) ---
 st.divider()
 if st.button("📊 查看今日填報統計 (點擊載入)"):
     with st.spinner('搜尋今日數據...'):
         try:
             _, df = get_sheet_and_data()
             if not df.empty:
-                # 強化日期比對：移除所有斜線或橫槓，統一格式
+                # 模糊比對法：只取前 10 個字元 (YYYY-MM-DD)，並統一處理符號
                 today_str = datetime.now().strftime("%Y-%m-%d")
-                df['日期'] = df['日期'].astype(str).str.replace('/', '-', regex=True)
-                today_data = df[df['日期'].str.contains(today_str)]
+                df['日期'] = df['日期'].astype(str).str.replace('/', '-', regex=True).str.slice(0, 10)
+                
+                # 過濾今日資料
+                today_data = df[df['日期'] == today_str]
                 
                 if not today_data.empty:
+                    st.success(f"✅ 找到今日 {len(today_data)} 筆紀錄")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("今日趟數", len(today_data))
-                    c2.metric("總里程", f"{pd.to_numeric(today_data['實際里程']).sum()} km")
-                    c3.metric("總板數", f"{pd.to_numeric(today_data['合計收送板數']).sum()} 板")
+                    
+                    # 確保數字欄位能正確加總
+                    m_sum = pd.to_numeric(today_data['實際里程'], errors='coerce').sum()
+                    p_sum = pd.to_numeric(today_data['合計收送板數'], errors='coerce').sum()
+                    
+                    c2.metric("總里程", f"{int(m_sum)} km")
+                    c3.metric("總板數", f"{int(p_sum)} 板")
+                    
+                    # 顯示明細
                     st.dataframe(today_data[['司機', '路線別', '實際里程', '合計收送板數']].tail(5), use_container_width=True, hide_index=True)
                 else:
-                    st.warning("今日尚無紀錄。")
+                    st.warning("📅 雲端已有資料，但日期格式比對失敗。請確認試算表『日期』欄位是否為 YYYY-MM-DD 格式。")
             else:
-                st.info("目前尚無資料。")
-        except Exception as e:
-            st.error(f"連線繁忙：{e}")
+                st.info("目前試算表尚無資料。")
+        except:
+            st.error("讀取太頻繁，請等待 30 秒後點擊。")
