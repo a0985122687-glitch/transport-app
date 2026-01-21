@@ -10,12 +10,18 @@ st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="ce
 
 st.markdown("""
     <style>
+    /* 隱藏頂部標題與選單 */
     header[data-testid="stHeader"] { display: none !important; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    /* 隱藏數字輸入框右側的加減按鈕 */
+    
+    /* 徹底隱藏數字輸入框的加減按鈕與小數點格式 */
     button[step="1"] { display: none !important; }
     input[type=number] { -moz-appearance: textfield; }
+    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button {
+        -webkit-appearance: none; margin: 0;
+    }
+    
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -54,19 +60,21 @@ if selected_driver != "請選擇填報人":
 
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
+    # 里程輸入：使用 format="%d" 強制不顯示小數點
     col_m1, col_m2 = st.columns(2)
     with col_m1:
-        m_start = st.number_input("📈 里程(起)", value=None, placeholder="輸入起點里程")
+        m_start = st.number_input("📈 里程(起)", value=None, placeholder="輸入起點里程", format="%d")
     with col_m2:
-        m_end = st.number_input("📉 里程(迄)", value=None, placeholder="輸入終點里程")
+        m_end = st.number_input("📉 里程(迄)", value=None, placeholder="輸入終點里程", format="%d")
 
+    # 顯示順序調整：送板 -> 收板 -> 空籃 -> 空板
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        p_sent = st.number_input("送板數", value=None, placeholder="輸入數量")
-        basket_back = st.number_input("空籃回收", value=None, placeholder="輸入數量")
+        p_sent = st.number_input("送板數", value=None, placeholder="輸入數量", format="%d")
+        basket_count = st.number_input("空籃數", value=None, placeholder="輸入數量", format="%d")
     with col_p2:
-        p_recv = st.number_input("收板數", value=None, placeholder="輸入數量")
-        plate_back = st.number_input("空板回收", value=None, placeholder="輸入數量")
+        p_recv = st.number_input("收板數", value=None, placeholder="輸入數量", format="%d")
+        plate_count = st.number_input("空板數", value=None, placeholder="輸入數量", format="%d")
     
     remark = st.text_input("💬 備註")
 
@@ -77,14 +85,15 @@ if selected_driver != "請選擇填報人":
             with st.spinner('同步至雲端中...'):
                 try:
                     sheet, _ = get_sheet_and_data()
-                    actual_dist = m_end - m_start
-                    ps = p_sent if p_sent is not None else 0
-                    pr = p_recv if p_recv is not None else 0
-                    bb = basket_back if basket_back is not None else 0
-                    pb = plate_back if plate_back is not None else 0
+                    actual_dist = int(m_end - m_start)
+                    ps = int(p_sent) if p_sent is not None else 0
+                    pr = int(p_recv) if p_recv is not None else 0
+                    bc = int(basket_count) if basket_count is not None else 0
+                    pc = int(plate_count) if plate_count is not None else 0
                     
                     total_plates = ps + pr
-                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, ps, pr, total_plates, bb, pb, "", remark]
+                    # 按照 A-O 欄位順序寫入試算表
+                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, ps, pr, total_plates, bc, pc, "", remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
                     st.balloons()
@@ -105,38 +114,36 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
-                        month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
+                    # 數值轉換並強制轉為整數
+                    for c in ['實際里程', '合計收送板數', '空籃', '空板']:
+                        # 處理舊資料中可能有的「空籃回收」標籤
+                        col_target = c if c in month_data.columns else (c+'回收' if (c+'回收') in month_data.columns else c)
+                        month_data[c] = pd.to_numeric(month_data[col_target], errors='coerce').fillna(0).astype(int)
 
-                    # 獎金公式
-                    month_data['載運獎金'] = month_data['合計收送板數'] * 40
-                    month_data['空籃獎金'] = month_data['空籃回收'] / 2
-                    month_data['空板獎金'] = month_data['空板回收'] * 3
-                    month_data['合計獎金'] = month_data['載運獎金'] + month_data['空籃獎金'] + month_data['空板獎金']
+                    # 獎金計算
+                    month_data['載運獎金'] = (month_data['合計收送板數'] * 40).astype(int)
+                    month_data['空籃獎金'] = (month_data['空籃'] / 2).astype(int)
+                    month_data['空板獎金'] = (month_data['空板'] * 3).astype(int)
+                    month_data['合計獎金'] = (month_data['載運獎金'] + month_data['空籃獎金'] + month_data['空板獎金']).astype(int)
 
                     st.subheader(f"📅 {this_month} 統計摘要")
                     m1, m2 = st.columns(2)
                     m1.metric("當月趟數", f"{len(month_data)} 趟")
-                    m2.metric("合計總板數", f"{int(month_data['合計收送板數'].sum())} 板")
+                    m2.metric("合計總板數", f"{month_data['合計收送板數'].sum()} 板")
 
-                    # 優化 1：平均里程移除小數點並美化表格
+                    # 平均里程表：移除小數點與索引
                     st.write("🛣️ 各路線平均里程 (整數)：")
                     avg_route = month_data.groupby('路線別')['實際里程'].mean().reset_index()
                     avg_route.columns = ['路線名稱', '平均里程']
                     avg_route['平均里程'] = avg_route['平均里程'].astype(int)
-                    # 使用 hide_index=True 刪除左側空白列
                     st.table(avg_route)
 
-                    st.success(f"💰 當月預估獎金合計：{int(month_data['合計獎金'].sum())} 元")
+                    st.success(f"💰 當月預估獎金合計：{month_data['合計獎金'].sum()} 元")
                     
-                    # 優化 2：明細表移除小數點並美化
+                    # 獎金明細表：移除小數點與索引
                     st.write("📋 獎金統計明細：")
                     show_cols = ['日期', '路線別', '合計收送板數', '載運獎金', '空籃獎金', '空板獎金', '合計獎金']
                     final_df = month_data[show_cols].tail(10)
-                    # 將明細表中的數字也轉為整數
-                    for col in ['合計收送板數', '載運獎金', '空籃獎金', '空板獎金', '合計獎金']:
-                        final_df[col] = final_df[col].astype(int)
-                    
                     st.dataframe(final_df, use_container_width=True, hide_index=True)
                 else:
                     st.warning("本月尚無紀錄。")
