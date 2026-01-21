@@ -1,6 +1,6 @@
 import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
 
@@ -12,24 +12,30 @@ st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden
 
 st.title("🚚 運輸日報表輸入")
 
-# --- 核心：快取連線，避免頻繁讀取 API ---
-@st.cache_resource
+# --- 修正後的連線函式 ---
 def get_gspread_client():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    # 從 Secrets 讀取金鑰
+    creds_info = st.secrets["gcp_service_account"]
+    # 使用官方推薦的 google-auth 方式建立連線
+    creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=600) # 每 10 分鐘 (600秒) 才重新抓一次資料
-def get_data_from_sheet(sheet_name):
-    client = get_gspread_client()
-    sh = client.open(sheet_name)
-    sheet = sh.get_worksheet(0)
-    return pd.DataFrame(sheet.get_all_records()), sheet
-
 try:
-    # 使用快取抓取資料
-    df, sheet = get_data_from_sheet("Transport_System_2026")
+    # 建立連線並讀取資料
+    client = get_gspread_client()
+    sh = client.open("Transport_System_2026")
+    sheet = sh.get_worksheet(0)
+    
+    # 這裡加入簡單的快取，避免每打一個字就去連線一次
+    @st.cache_data(ttl=60) # 資料快取 1 分鐘，既能防斷線又能維持數據新鮮
+    def fetch_data():
+        return pd.DataFrame(sheet.get_all_records())
+
+    df = fetch_data()
 
     # 2. 司機選擇
     driver_list = ["請選擇司機", "司機A", "司機B", "車號001"]
@@ -51,6 +57,7 @@ try:
         route_name = st.selectbox("路線別", route_options)
         
         # --- 里程自動連動 ---
+        # 尋找該司機在資料庫中的最後一筆里程
         driver_df = df[df['司機'] == selected_driver] if not df.empty and '司機' in df.columns else pd.DataFrame()
         last_m = int(driver_df.iloc[-1]['里程迄']) if not driver_df.empty else 0
         
@@ -80,13 +87,16 @@ try:
                 actual_dist = m_end - m_start
                 total_plates = p_sent + p_recv
                 
+                # 寫入 Excel
                 new_row = [
                     selected_driver, str(input_date), start_time, end_time, route_name,
                     m_start, m_end, actual_dist, p_sent, p_recv, 
                     total_plates, basket_back, plate_back, detail_content, input_remark
                 ]
                 sheet.append_row(new_row)
-                st.cache_data.clear() # 送出後清除快取，確保下次能抓到最新的上一筆里程
+                
+                # 成功後強制清除快取，讓下次能抓到最新里程
+                st.cache_data.clear()
                 st.success("存檔成功！")
                 st.balloons()
                 st.rerun()
@@ -96,7 +106,8 @@ try:
     st.subheader("📋 最近紀錄預覽")
     if not df.empty:
         display_cols = ['司機', '日期', '上班時間', '下班時間', '路線別', '實際里程']
-        st.dataframe(df[display_cols].tail(5), use_container_width=True, hide_index=True)
+        if all(c in df.columns for c in display_cols):
+            st.dataframe(df[display_cols].tail(5), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"系統暫時繁忙，請稍候再試：{e}")
+    st.error(f"連線異常，請重新整理網頁：{e}")
