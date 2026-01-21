@@ -1,33 +1,36 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面美化與配置
+# 1. 頁面配置
 st.set_page_config(page_title="運輸日報表", page_icon="🚚", layout="centered")
 
-# 隱藏選單，美化按鈕
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    .stButton>button {width: 100%; border-radius: 12px; background-color: #007BFF; color: white; height: 3.8em; font-size: 20px; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}</style>""", unsafe_allow_html=True)
+    .stButton>button {width: 100%; border-radius: 12px; background-color: #007BFF; color: white; height: 3.8em; font-size: 18px; font-weight: bold;}</style>""", unsafe_allow_html=True)
 
 st.title("📝 運輸日報表")
 
-# 2. 超穩定連線機制
-def get_sheet():
+# 2. 核心連線函式
+def get_sheet_and_data():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
     client = gspread.authorize(creds)
-    return client.open("Transport_System_2026").get_worksheet(0)
+    sheet = client.open("Transport_System_2026").get_worksheet(0)
+    # 僅在必要時抓取資料
+    df = pd.DataFrame(sheet.get_all_records())
+    return sheet, df
 
-# --- 介面開始 ---
+# --- 輸入介面 ---
 driver_list = ["請選擇填報人", "司機A", "司機B", "車號001"]
 selected_driver = st.selectbox("👤 填報人", driver_list)
 
 if selected_driver != "請選擇填報人":
     st.divider()
     
-    # 日期與上下班時間
+    # 時間與路線
     input_date = st.date_input("📅 運送日期", datetime.now())
     col1, col2 = st.columns(2)
     with col1:
@@ -36,17 +39,15 @@ if selected_driver != "請選擇填報人":
         end_times = [f"{h}:{m:02d}" for h in range(12, 19) for m in (0, 30)][:-1]
         end_time = st.selectbox("🕔 下班時間", end_times, index=10)
 
-    # 路線與里程 (手動輸入，避免連線抓取上次里程)
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
+    # 里程與載運
     col_m1, col_m2 = st.columns(2)
     with col_m1:
-        m_start = st.number_input("📈 里程(起)", step=1, format="%d", help="請輸入儀表板起點里程")
+        m_start = st.number_input("📈 里程(起)", step=1, format="%d")
     with col_m2:
-        m_end = st.number_input("📉 里程(迄)", step=1, format="%d", help="請輸入儀表板終點里程")
+        m_end = st.number_input("📉 里程(迄)", step=1, format="%d")
 
-    # 載運數據
-    st.caption("📦 載運數據")
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         p_sent = st.number_input("送板數", value=0, step=1)
@@ -58,32 +59,44 @@ if selected_driver != "請選擇填報人":
     detail_content = st.text_area("📝 詳細配送內容")
     input_remark = st.text_input("💬 備註")
 
-    # 3. 核心送出邏輯 (只有這裡會觸發連線)
     if st.button("🚀 確認送出報表", use_container_width=True):
         if route_name == "請選擇路線":
             st.warning("⚠️ 請選擇路線別！")
-        elif m_end <= 0:
-            st.error("⚠️ 請輸入正確的終點里程！")
         else:
-            with st.spinner('正在同步至雲端，請勿關閉網頁...'):
+            with st.spinner('正在同步至雲端...'):
                 try:
-                    sheet = get_sheet()
+                    sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
                     total_plates = p_sent + p_recv
-                    
-                    new_row = [
-                        selected_driver, str(input_date), start_time, end_time, route_name,
-                        m_start, m_end, actual_dist, p_sent, p_recv, 
-                        total_plates, basket_back, plate_back, detail_content, input_remark
-                    ]
-                    
+                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, detail_content, input_remark]
                     sheet.append_row(new_row)
-                    st.success("🎉 報表存檔成功！您可以關閉網頁了。")
+                    st.success("🎉 報表存檔成功！")
                     st.balloons()
-                    time.sleep(3)
+                    time.sleep(2)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"連線失敗，請檢查網路或稍候再試。")
+                except:
+                    st.error("連線繁忙，請等 30 秒後再試。")
 
+# --- 底部統計區 (按需載入) ---
 st.divider()
-st.info("💡 提醒：若遇到連線問題，請稍候 1 分鐘後重新整理頁面即可。")
+if st.button("📊 查看今日填報統計 (點擊載入)"):
+    with st.spinner('讀取雲端報表中...'):
+        try:
+            _, df = get_sheet_and_data()
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            # 修正：確保日期格式與 Excel 一致
+            today_data = df[df['日期'].astype(str) == today_str]
+            
+            if not today_data.empty:
+                # 顯示簡易小統計
+                c1, c2, c3 = st.columns(3)
+                c1.metric("今日趟數", len(today_data))
+                c2.metric("總里程", f"{today_data['實際里程'].sum()} km")
+                c3.metric("總板數", f"{today_data['合計收送板數'].sum()} 板")
+                
+                # 顯示最近 3 筆
+                st.dataframe(today_data[['司機', '路線別', '實際里程', '合計收送板數']].tail(3), use_container_width=True, hide_index=True)
+            else:
+                st.info("今日尚無填報紀錄。")
+        except:
+            st.error("讀取太頻繁，請稍候再試。")
