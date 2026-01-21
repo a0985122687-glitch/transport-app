@@ -5,16 +5,28 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與美化
+# 1. 頁面配置與終極美化 (隱藏所有多餘按鈕與圖示)
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
-# 隱藏 GitHub 貓咪圖示、右下角選單與頁尾
 st.markdown("""
     <style>
-    .stAppHeader { visibility: hidden; }
-    #MainMenu { visibility: hidden; }
-    .stDeployButton { display:none; }
-    footer { visibility: hidden; }
+    /* 1. 強制隱藏頂部所有橫條、GitHub 貓咪與選單 */
+    .stAppHeader, header, [data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* 2. 強制隱藏右下角所有按鈕與選單 (含紅色 Deploy 按鈕) */
+    #MainMenu, .stDeployButton, footer, [data-testid="stStatusWidget"], .st-emotion-cache-1avcm0n {
+        display: none !important;
+    }
+    
+    /* 3. 調整頁面間距，讓內容填滿手機螢幕 */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+
+    /* 4. 保持原本的按鈕美化設定 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
