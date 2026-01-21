@@ -5,33 +5,38 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與終極美化 (針對右下角按鈕進行強力封鎖)
+# 1. 頁面配置與「底層級」美化隱藏
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
+# 使用萬用選擇器 (*) 與強制屬性隱藏多餘按鈕
 st.markdown("""
     <style>
-    /* 1. 強制隱藏頂部所有導航列與 GitHub 連結 */
-    .stAppHeader, header, [data-testid="stHeader"] {
-        display: none !important;
-    }
-    
-    /* 2. 徹底封鎖右下角所有浮動按鈕 (含紅色皇冠與連線圖示) */
-    .stDeployButton, [data-testid="stStatusWidget"], .st-emotion-cache-1avcm0n, .st-emotion-cache-6q9sum {
+    /* 1. 隱藏頂部標題列與 GitHub 圖示 */
+    header, [data-testid="stHeader"], .stAppHeader {
         display: none !important;
     }
 
-    /* 3. 隱藏底部選單與 Made with Streamlit 文字 */
-    #MainMenu, footer {
-        visibility: hidden !important;
+    /* 2. 徹底封鎖右下角所有浮動元件 (含紅色皇冠、藍綠圖示、選單) */
+    [data-testid="stStatusWidget"], 
+    .stDeployButton, 
+    #MainMenu, 
+    footer, 
+    div[class*="st-emotion-cache-"] > button {
+        display: none !important;
     }
-    
-    /* 4. 調整頁面間距，讓標題貼近頂部 */
+
+    /* 3. 移除底部多餘的空白與浮動容器 */
+    [data-testid="stDecoration"], .st-emotion-cache-6q9sum, .st-emotion-cache-1avcm0n {
+        display: none !important;
+    }
+
+    /* 4. 讓填報畫面更貼近頂部，適合手機操作 */
     .block-container {
         padding-top: 1rem !important;
         padding-bottom: 0rem !important;
     }
 
-    /* 5. 藍色送出按鈕美化 */
+    /* 5. 藍色送出按鈕樣式 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -119,7 +124,7 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
-                    # 您指定的獎金公式 [cite: 2026-01-21]
+                    # 您指定的獎金公式：合計板數*40, 空籃/2, 空板*3
                     month_data['載運獎金'] = month_data['合計收送板數'] * 40
                     month_data['空籃獎金'] = month_data['空籃回收'] / 2
                     month_data['空板獎金'] = month_data['空板回收'] * 3
