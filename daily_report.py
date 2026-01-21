@@ -42,7 +42,7 @@ def get_sheet_and_data():
         df.columns = df.columns.str.strip()
     return sheet, df
 
-# --- 3. 填報介面區 (依司機操作順序重新排列) ---
+# --- 3. 填報介面區 (依您指定的順序排列) ---
 driver_options = ["請選擇填報人", "司機A", "司機B", "司機C", "司機D"]
 selected_driver = st.selectbox("👤 填報人", driver_options)
 
@@ -58,15 +58,15 @@ if selected_driver != "請選擇填報人":
 
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
-    # 家數保留手動輸入
-    customer_count = st.number_input("配送家數", value=None, placeholder="輸入總家數", step=1)
+    # 配送家數保留手動輸入
+    customer_count = st.number_input("🏠 配送家數", value=None, placeholder="輸入總家數", step=1)
 
     st.divider()
     
-    # 1. 里程(起)
+    # 1. 里程(起) - 放在最上方
     m_start = st.number_input("📈 1. 里程(起)", value=None, placeholder="出車前里程", step=1)
 
-    # 2-5. 板數與回收 (手機版會自動排列)
+    # 2-5. 板數與回收 (中間區域)
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         p_sent = st.number_input("🚚 2. 送板數", value=None, placeholder="輸入數量", step=1)
@@ -75,7 +75,7 @@ if selected_driver != "請選擇填報人":
         p_recv = st.number_input("📥 3. 收板數", value=None, placeholder="輸入數量", step=1)
         plate_count = st.number_input("🔄 5. 空板數", value=None, placeholder="輸入數量", step=1)
 
-    # 6. 里程(迄)
+    # 6. 里程(迄) - 放在最下方
     m_end = st.number_input("📉 6. 里程(迄)", value=None, placeholder="收車後里程", step=1)
     
     remark = st.text_input("💬 備註")
@@ -92,26 +92,24 @@ if selected_driver != "請選擇填報人":
                     bc, pc = int(basket_count or 0), int(plate_count or 0)
                     cc = int(customer_count or 0)
                     
-                    # 按照 A-O 欄位順序寫入試算表 [cite: 2026-01-21]
-                    # 順序：司機, 日期, 上班, 下班, 路線, 里程起, 里程迄, 實際里程, 送板, 收板, 合計板, 空籃, 空板, 配送家數, 備註
+                    # 按照 A-O 欄位順序寫入 [cite: 2026-01-21]
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, int(m_start), int(m_end), actual_dist, ps, pr, ps+pr, bc, pc, cc, remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！已重置畫面。")
                     time.sleep(1)
-                    st.rerun() # 自動歸零
+                    st.rerun() # 自動重置畫面歸零
                 except Exception as e:
                     st.error(f"連線失敗：{e}")
 
-# --- 4. 進階效益分析 (整數整潔版) ---
+# --- 4. 進階效益分析 (對標 Excel 整數版) ---
 st.divider()
 if st.button("📊 查看路線效益分析"):
     with st.spinner('資料分析中...'):
         try:
             _, df = get_sheet_and_data()
             if not df.empty:
-                # 數值標準化 (解決小數點問題)
-                num_cols = ['實際里程', '送板', '收板', '合計板數']
-                for c in num_cols:
+                # 數值標準化處理 (確保移除小數點)
+                for c in ['實際里程', '送板', '收板', '合計板數']:
                     if c in df.columns:
                         df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype(int)
 
@@ -119,7 +117,7 @@ if st.button("📊 查看路線效益分析"):
                 month_data = df[df['日期'].astype(str).str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 分類彙總
+                    # 分類彙總與效益排名
                     analysis = month_data.groupby('路線別').agg({
                         '日期': 'count',
                         '實際里程': 'sum',
@@ -128,9 +126,10 @@ if st.button("📊 查看路線效益分析"):
                     
                     analysis.columns = ['路線別', '趟次', '總里程', '合計板數']
                     analysis['均點板數'] = (analysis['合計板數'] / analysis['趟次']).round(0).astype(int)
+                    # 效益排名：合計板數越多排名越前面
                     analysis['效益排名'] = analysis['合計板數'].rank(ascending=False, method='min').astype(int)
                     
-                    st.subheader(f"📅 {this_month} 路線競爭力排名 (整數版)")
+                    st.subheader(f"📅 {this_month} 路線競爭力排名")
                     # 隱藏左側空白索引列
                     st.dataframe(analysis.sort_values('效益排名'), use_container_width=True, hide_index=True)
                     
@@ -138,4 +137,4 @@ if st.button("📊 查看路線效益分析"):
                 else:
                     st.warning("本月尚未有紀錄。")
         except Exception as e:
-            st.error(f"分析失敗，請檢查試算表標題：{e}")
+            st.error(f"分析失敗：{e}")
