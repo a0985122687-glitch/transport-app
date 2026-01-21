@@ -5,30 +5,40 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與精確美化
+# 1. 頁面配置與終極美化 (徹底鎖定所有多餘圖示)
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
-# --- 核心美化指令：只刪除右上貓咪，保留獎金資料 ---
 st.markdown("""
     <style>
-    /* 1. 隱藏頂部標題列與 GitHub 連結 */
-    header[data-testid="stHeader"] {
+    /* 1. 徹底隱藏頂部標題列與所有連結 */
+    .stAppHeader, header, [data-testid="stHeader"] {
         display: none !important;
     }
     
-    /* 2. 隱藏側邊選單與頁尾 */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* 2. 徹底封鎖右下角所有浮動元件 (含紅色皇冠、藍綠連線圖示) */
+    [data-testid="stStatusWidget"], 
+    .stDeployButton, 
+    #MainMenu, 
+    footer, 
+    div[class*="st-emotion-cache-"] > button {
+        display: none !important;
+    }
+
+    /* 3. 移除裝飾用的多餘浮動容器 */
+    [data-testid="stDecoration"], .st-emotion-cache-6q9sum, .st-emotion-cache-1avcm0n {
+        display: none !important;
+    }
     
-    /* 3. 按鈕風格美化 */
+    /* 4. 讓內容更靠頂部，適合手機操作 */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 0rem !important;
+    }
+
+    /* 5. 藍色確認送出按鈕美化 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
-    }
-    
-    /* 4. 調整頁面間距 */
-    .block-container {
-        padding-top: 2rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -87,7 +97,7 @@ if selected_driver != "請選擇填報人":
                     sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
                     total_plates = p_sent + p_recv
-                    # 按照 A-O 欄位順序寫入 [cite: 2026-01-21]
+                    # 按照 A-O 欄位順序寫入試算表 [cite: 2026-01-21]
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, detail_content, remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
@@ -97,7 +107,7 @@ if selected_driver != "請選擇填報人":
                 except:
                     st.error("連線繁忙，請稍候。")
 
-# --- 4. 統計區 (含您指定的獎金公式) ---
+# --- 4. 統計區 (確認版獎金公式) ---
 st.divider()
 if st.button("📊 查看當月獎金與統計 (點擊載入)"):
     with st.spinner('正在核算獎金...'):
@@ -109,11 +119,11 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值轉換，確保計算準確
+                    # 數值轉換，避免計算錯誤
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
-                    # 獎金公式：合計板數*40, 空籃/2, 空板*3 [cite: 2026-01-21]
+                    # 您指定的獎金公式：合計板數*40, 空籃/2, 空板*3
                     month_data['載運獎金'] = month_data['合計收送板數'] * 40
                     month_data['空籃獎金'] = month_data['空籃回收'] / 2
                     month_data['空板獎金'] = month_data['空板回收'] * 3
@@ -128,10 +138,9 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                     st.success(f"💰 當月預估獎金合計：{round(month_data['合計獎金'].sum(), 1)} 元")
 
                     st.write("📋 詳細統計明細：")
-                    # 這裡只顯示您需要的欄位，讓表格乾淨
                     show_cols = ['日期', '司機', '路線別', '實際里程', '載運獎金', '空籃獎金', '空板獎金', '合計獎金']
                     st.dataframe(month_data[show_cols].tail(10), use_container_width=True, hide_index=True)
                 else:
-                    st.warning("本月尚無資料。")
+                    st.warning("本月尚無紀錄。")
         except Exception as e:
             st.error(f"核算失敗：{e}")
