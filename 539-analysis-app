@@ -1,0 +1,28 @@
+import pandas as pd
+import requests
+from collections import Counter
+
+def fetch_539_data():
+    # 這裡未來會替換成真正的爬蟲網址，目前先建立邏輯結構
+    print("正在連線至台灣彩券資訊來源...")
+    # 假設我們抓取到的號碼結構
+    # data = requests.get(API_URL).json()
+    pass
+
+def analyze_logic(history_df):
+    """
+    分析邏輯：
+    1. 統計近半年(180天)各號碼出現次數
+    2. 找出『冷熱號碼』
+    3. 計算『隔日拖牌』：即 A 號碼開出後，隔天最常開什麼？
+    """
+    # 展開所有號碼變成一個長清單
+    all_nums = history_df[['n1', 'n2', 'n3', 'n4', 'n5']].values.flatten()
+    counts = Counter(all_nums)
+    
+    # 統計重複性最高的前 10 名
+    most_common = counts.most_common(10)
+    
+    return most_common
+
+print("分析模組已就緒")
