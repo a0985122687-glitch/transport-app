@@ -14,7 +14,7 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* 徹底隱藏加減按鈕 */
+    /* 隱藏數字輸入框的加減按鈕 */
     button[step="1"] { display: none !important; }
     input[type=number] { -moz-appearance: textfield; }
     input::-webkit-outer-spin-button, input::-webkit-inner-spin-button {
@@ -59,21 +59,21 @@ if selected_driver != "請選擇填報人":
 
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
-    # 里程輸入：移除小數點與警告，強制整數型態
+    # 里程輸入：確保為整數，避免黃色警告
     col_m1, col_m2 = st.columns(2)
     with col_m1:
-        m_start = st.number_input("📈 里程(起)", value=None, placeholder="輸入起點里程", step=1)
+        m_start = st.number_input("📈 里程(起)", value=None, placeholder="輸入起點里程")
     with col_m2:
-        m_end = st.number_input("📉 里程(迄)", value=None, placeholder="輸入終點里程", step=1)
+        m_end = st.number_input("📉 里程(迄)", value=None, placeholder="輸入終點里程")
 
-    # 顯示順序與名稱：送板 -> 收板 -> 空籃數 -> 空板數 (皆強制整數)
+    # 顯示順序：送板 -> 收板 -> 空籃 -> 空板
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        p_sent = st.number_input("送板數", value=None, placeholder="輸入數量", step=1)
-        basket_count = st.number_input("空籃數", value=None, placeholder="輸入數量", step=1)
+        p_sent = st.number_input("送板數", value=None, placeholder="輸入數量")
+        basket_count = st.number_input("空籃數", value=None, placeholder="輸入數量")
     with col_p2:
-        p_recv = st.number_input("收板數", value=None, placeholder="輸入數量", step=1)
-        plate_count = st.number_input("空板數", value=None, placeholder="輸入數量", step=1)
+        p_recv = st.number_input("收板數", value=None, placeholder="輸入數量")
+        plate_count = st.number_input("空板數", value=None, placeholder="輸入數量")
     
     remark = st.text_input("💬 備註")
 
@@ -103,7 +103,7 @@ if selected_driver != "請選擇填報人":
 # --- 4. 統計分析區 ---
 st.divider()
 if st.button("📊 查看統計與獎金 (點擊載入)"):
-    with st.spinner('正在讀取資料...'):
+    with st.spinner('讀取中...'):
         try:
             _, df = get_sheet_and_data()
             if not df.empty:
@@ -112,12 +112,12 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值校正：強制轉換為整數，移除小數點
+                    # 數值校正：全部轉整數，移除小數點
                     for c in ['實際里程', '合計收送板數', '空籃', '空板']:
-                        col_name = c if c in month_data.columns else (c+'回收' if (c+'回收') in month_data.columns else c)
-                        month_data[c] = pd.to_numeric(month_data[col_name], errors='coerce').fillna(0).astype(int)
+                        col_target = c if c in month_data.columns else (c+'回收' if (c+'回收') in month_data.columns else c)
+                        month_data[c] = pd.to_numeric(month_data[col_target], errors='coerce').fillna(0).astype(int)
 
-                    # 獎金計算：確保整數
+                    # 獎金計算
                     month_data['載運獎金'] = (month_data['合計收送板數'] * 40).astype(int)
                     month_data['空籃獎金'] = (month_data['空籃'] / 2).astype(int)
                     month_data['空板獎金'] = (month_data['空板'] * 3).astype(int)
@@ -141,4 +141,8 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
                     final_df = month_data[show_cols].tail(10)
                     st.dataframe(final_df, use_container_width=True, hide_index=True)
                 else:
-                    st.warning("本月尚無
+                    st.warning("本月尚無資料。")
+            else:
+                st.info("目前雲端無資料。")
+        except Exception as e:
+            st.error(f"讀取失敗：{e}")
