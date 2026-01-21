@@ -5,12 +5,12 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與終極美化 (隱藏所有多餘按鈕與圖示)
+# 1. 頁面配置與終極美化 (隱藏所有多餘按鈕)
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
 st.markdown("""
     <style>
-    /* 1. 強制隱藏頂部所有橫條、GitHub 貓咪與選單 */
+    /* 1. 強制隱藏頂部所有橫條、GitHub 貓咪與 Fork 選單 */
     .stAppHeader, header, [data-testid="stHeader"] {
         display: none !important;
     }
@@ -22,11 +22,11 @@ st.markdown("""
     
     /* 3. 調整頁面間距，讓內容填滿手機螢幕 */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 1.5rem !important;
         padding-bottom: 1rem !important;
     }
 
-    /* 4. 保持原本的按鈕美化設定 */
+    /* 4. 按鈕風格美化 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -98,7 +98,7 @@ if selected_driver != "請選擇填報人":
                 except:
                     st.error("連線繁忙，請稍候。")
 
-# --- 4. 統計區 (含您指定的獎金公式) ---
+# --- 4. 統計區 (含正確獎金公式) ---
 st.divider()
 if st.button("📊 查看當月獎金與統計 (點擊載入)"):
     with st.spinner('正在核算獎金...'):
@@ -114,7 +114,7 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
-                    # 獎金公式：合計板數*40, 空籃/2, 空板*3
+                    # 您指定的獎金公式 [cite: 2026-01-21]
                     month_data['載運獎金'] = month_data['合計收送板數'] * 40
                     month_data['空籃獎金'] = month_data['空籃回收'] / 2
                     month_data['空板獎金'] = month_data['空板回收'] * 3
