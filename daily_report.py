@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與「安全性」隱藏指令
+# 1. 頁面配置與「定位偏移」美化
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
 st.markdown("""
@@ -15,24 +15,21 @@ st.markdown("""
         display: none !important;
     }
 
-    /* 2. 針對右下角按鈕：將其變為透明且穿透，不影響資料顯示 */
+    /* 2. 定位偏移法：將右下角按鈕推到螢幕外，避免誤觸且不傷明細 */
     .stDeployButton, [data-testid="stStatusWidget"], footer {
-        opacity: 0 !important;
-        pointer-events: none !important;
+        position: fixed !important;
+        bottom: -100px !important;
+        right: -100px !important;
+        visibility: hidden !important;
     }
 
-    /* 3. 移除裝飾用的多餘浮動容器 */
-    [data-testid="stDecoration"] {
-        display: none !important;
-    }
-
-    /* 4. 讓填報畫面更貼近頂部 */
+    /* 3. 調整頁面間距 */
     .block-container {
         padding-top: 1.5rem !important;
-        padding-bottom: 0rem !important;
+        padding-bottom: 2rem !important;
     }
 
-    /* 5. 藍色確認送出按鈕美化 */
+    /* 4. 藍色送出按鈕美化 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -94,7 +91,7 @@ if selected_driver != "請選擇填報人":
                     sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
                     total_plates = p_sent + p_recv
-                    # 按照 A-O 欄位順序寫入試算表 [cite: 2026-01-21]
+                    # 按照 A-O 欄位順序寫入 [cite: 2026-01-21]
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, detail_content, remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
@@ -104,7 +101,7 @@ if selected_driver != "請選擇填報人":
                 except:
                     st.error("連線繁忙，請稍候。")
 
-# --- 4. 統計區 (含正確獎金公式) ---
+# --- 4. 統計區 ---
 st.divider()
 if st.button("📊 查看當月獎金與統計 (點擊載入)"):
     with st.spinner('正在核算獎金...'):
@@ -116,7 +113,6 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值轉換
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
