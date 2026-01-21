@@ -1,30 +1,32 @@
 import streamlit as st
 import gspread
-# ... (前面的 import 維持不變) ...
+from google.oauth2.service_account import Credentials
+import pandas as pd
+from datetime import datetime
+import time
 
 # 1. 頁面配置
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
-# --- 核心美化指令：隱藏右上貓咪與右下標誌 ---
+# --- 修正後的精確美化指令 ---
 st.markdown("""
     <style>
-    /* 1. 隱藏右上角的 GitHub 貓咪與選單按鈕 */
-    header {visibility: hidden;}
+    /* 只針對頂部導航列進行隱藏，不影響內容 */
+    .stAppHeader {
+        visibility: hidden;
+    }
     
-    /* 2. 隱藏右下角的 Streamlit 選單按鈕 (大紅色或藍色的那個) */
-    .stDeployButton {display:none;}
+    /* 隱藏右下角的 Streamlit 選單與部署按鈕 */
     #MainMenu {visibility: hidden;}
-    
-    /* 3. 隱藏頁尾文字 (Made with Streamlit) */
+    .stDeployButton {display:none;}
     footer {visibility: hidden;}
     
-    /* 4. 移除頂部多餘的空白，讓填報區塊上移 */
+    /* 調整內容區塊，確保填報欄位正常顯示 */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
+        padding-top: 2rem;
     }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("📝 運輸日報表")
-# ... (後面的填報與獎金統計程式碼維持不變) ...
+# ... (後面原本的填報與獎金統計程式碼請維持原樣，不要刪掉) ...
