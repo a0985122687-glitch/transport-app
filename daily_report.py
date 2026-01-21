@@ -59,14 +59,23 @@ if selected_driver != "請選擇填報人":
 
     route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
     
-    # 里程輸入：確保為整數，避免黃色警告
+    # 新增：配送家數與客戶板數明細
+    col_cust1, col_cust2 = st.columns([1, 2])
+    with col_cust1:
+        customer_count = st.number_input("配送家數", value=None, placeholder="家數", step=1)
+    with col_cust2:
+        customer_detail = st.text_input("客戶別/板數", placeholder="例: A店/3, B店/2")
+
+    st.divider()
+    
+    # 里程輸入
     col_m1, col_m2 = st.columns(2)
     with col_m1:
         m_start = st.number_input("📈 里程(起)", value=None, placeholder="輸入起點里程")
     with col_m2:
         m_end = st.number_input("📉 里程(迄)", value=None, placeholder="輸入終點里程")
 
-    # 顯示順序：送板 -> 收板 -> 空籃 -> 空板
+    # 板數與回收 (順序：送板 -> 收板 -> 空籃 -> 空板)
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         p_sent = st.number_input("送板數", value=None, placeholder="輸入數量")
@@ -89,9 +98,14 @@ if selected_driver != "請選擇填報人":
                     pr = int(p_recv) if p_recv is not None else 0
                     bc = int(basket_count) if basket_count is not None else 0
                     pc = int(plate_count) if plate_count is not None else 0
+                    cc = int(customer_count) if customer_count is not None else 0
                     
                     total_plates = ps + pr
-                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, int(m_start), int(m_end), actual_dist, ps, pr, total_plates, bc, pc, "", remark]
+                    # 按照 A-O 欄位順序寫入試算表 (將客戶資訊放入原預留位置)
+                    # 順序：司機, 日期, 上班, 下班, 路線, 里程起, 里程迄, 實際里程, 送板, 收板, 合計板, 空籃, 空板, 客戶資訊(家數/明細), 備註
+                    cust_info = f"{cc}家 ({customer_detail})" if customer_detail else f"{cc}家"
+                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, int(m_start), int(m_end), actual_dist, ps, pr, total_plates, bc, pc, cust_info, remark]
+                    
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
                     st.balloons()
@@ -112,12 +126,10 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值校正：全部轉整數，移除小數點
                     for c in ['實際里程', '合計收送板數', '空籃', '空板']:
                         col_target = c if c in month_data.columns else (c+'回收' if (c+'回收') in month_data.columns else c)
                         month_data[c] = pd.to_numeric(month_data[col_target], errors='coerce').fillna(0).astype(int)
 
-                    # 獎金計算
                     month_data['載運獎金'] = (month_data['合計收送板數'] * 40).astype(int)
                     month_data['空籃獎金'] = (month_data['空籃'] / 2).astype(int)
                     month_data['空板獎金'] = (month_data['空板'] * 3).astype(int)
@@ -137,7 +149,7 @@ if st.button("📊 查看統計與獎金 (點擊載入)"):
                     st.success(f"💰 當月預估獎金合計：{int(month_data['合計獎金'].sum())} 元")
                     
                     st.write("📋 獎金統計明細：")
-                    show_cols = ['日期', '路線別', '合計收送板數', '載運獎金', '空籃獎金', '空板獎金', '合計獎金']
+                    show_cols = ['日期', '路線別', '合計收送板數', '合計獎金']
                     final_df = month_data[show_cols].tail(10)
                     st.dataframe(final_df, use_container_width=True, hide_index=True)
                 else:
