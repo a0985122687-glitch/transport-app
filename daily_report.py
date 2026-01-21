@@ -5,36 +5,30 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與「全方位」隱藏指令
+# 1. 頁面配置
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
+# --- 顏色保護色隱藏法 ---
 st.markdown("""
     <style>
-    /* 1. 強制隱藏頂部標題列與 GitHub 連結 */
-    header, [data-testid="stHeader"], .stAppHeader {
+    /* 1. 徹底隱藏頂部標題列與貓咪 */
+    header[data-testid="stHeader"] {
         display: none !important;
     }
 
-    /* 2. 終極封鎖：隱藏右下角所有浮動按鈕、選單、皇冠與狀態圖示 */
-    [data-testid="stStatusWidget"], 
-    .stDeployButton, 
-    #MainMenu, 
-    footer,
-    div[class*="st-emotion-cache-"] > button,
-    [data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        width: 0 !important;
+    /* 2. 讓右下角所有標誌變為透明，且不可點擊 */
+    .stDeployButton, [data-testid="stStatusWidget"], footer {
+        opacity: 0.05 !important; /* 極度透明，幾乎看不見 */
+        pointer-events: none !important; /* 點不到它 */
     }
 
-    /* 3. 確保填報區與統計明細顯示正常，不受隱藏指令影響 */
+    /* 3. 調整邊距，確保獎金統計表能正常鋪滿 */
     .block-container {
         padding-top: 1.5rem !important;
-        padding-bottom: 2rem !important;
+        padding-bottom: 3rem !important;
     }
 
-    /* 4. 藍色確認送出按鈕美化 */
+    /* 4. 送出按鈕美化 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -106,7 +100,7 @@ if selected_driver != "請選擇填報人":
                 except:
                     st.error("連線繁忙，請稍候。")
 
-# --- 4. 統計區 ---
+# --- 4. 統計區 (確認版公式) ---
 st.divider()
 if st.button("📊 查看當月獎金與統計 (點擊載入)"):
     with st.spinner('正在核算獎金...'):
