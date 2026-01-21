@@ -5,28 +5,33 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# 1. 頁面配置與終極美化 (隱藏所有多餘按鈕)
+# 1. 頁面配置與終極美化 (針對右下角按鈕進行強力封鎖)
 st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="centered")
 
 st.markdown("""
     <style>
-    /* 1. 強制隱藏頂部所有橫條、GitHub 貓咪與 Fork 選單 */
+    /* 1. 強制隱藏頂部所有導航列與 GitHub 連結 */
     .stAppHeader, header, [data-testid="stHeader"] {
         display: none !important;
     }
     
-    /* 2. 強制隱藏右下角所有按鈕與選單 (含紅色 Deploy 按鈕) */
-    #MainMenu, .stDeployButton, footer, [data-testid="stStatusWidget"], .st-emotion-cache-1avcm0n {
+    /* 2. 徹底封鎖右下角所有浮動按鈕 (含紅色皇冠與連線圖示) */
+    .stDeployButton, [data-testid="stStatusWidget"], .st-emotion-cache-1avcm0n, .st-emotion-cache-6q9sum {
         display: none !important;
     }
+
+    /* 3. 隱藏底部選單與 Made with Streamlit 文字 */
+    #MainMenu, footer {
+        visibility: hidden !important;
+    }
     
-    /* 3. 調整頁面間距，讓內容填滿手機螢幕 */
+    /* 4. 調整頁面間距，讓標題貼近頂部 */
     .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 1rem !important;
+        padding-top: 1rem !important;
+        padding-bottom: 0rem !important;
     }
 
-    /* 4. 按鈕風格美化 */
+    /* 5. 藍色送出按鈕美化 */
     .stButton>button {
         width: 100%; border-radius: 12px; background-color: #007BFF; 
         color: white; height: 3.8em; font-size: 18px; font-weight: bold;
@@ -88,7 +93,7 @@ if selected_driver != "請選擇填報人":
                     sheet, _ = get_sheet_and_data()
                     actual_dist = m_end - m_start
                     total_plates = p_sent + p_recv
-                    # 按照 A-O 欄位順序寫入
+                    # 按照 A-O 欄位順序寫入試算表 [cite: 2026-01-21]
                     new_row = [selected_driver, str(input_date), start_time, end_time, route_name, m_start, m_end, actual_dist, p_sent, p_recv, total_plates, basket_back, plate_back, detail_content, remark]
                     sheet.append_row(new_row)
                     st.success("🎉 存檔成功！")
@@ -110,7 +115,7 @@ if st.button("📊 查看當月獎金與統計 (點擊載入)"):
                 month_data = df[df['日期'].str.contains(this_month)].copy()
                 
                 if not month_data.empty:
-                    # 數值轉換
+                    # 數值轉換，避免計算錯誤
                     for c in ['實際里程', '合計收送板數', '空籃回收', '空板回收']:
                         month_data[c] = pd.to_numeric(month_data[c], errors='coerce').fillna(0)
 
