@@ -15,7 +15,7 @@ def get_sheet():
     creds_dict = st.secrets["service_account"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
-    # 請替換為您正確的試算表網址
+    # 這是您之前確認過的正確試算表網址
     sheet_url = "https://docs.google.com/spreadsheets/d/1VzyglFpEC3yS11aIoU1YJclw-6Moaewyf8DTR-j7HDc/edit?gid=0#gid=0"
     return client.open_by_url(sheet_url).sheet1
 
@@ -23,8 +23,6 @@ def get_sheet():
 def calculate_bonus(base_amount, total_month_pallets):
     """
     對應 EXCEL 公式: =INT(E17*(IF($E$48>=501,1.2,IF($E$48>=451,1.1,1))-1)+0.5)
-    base_amount = E17 (基礎金額)
-    total_month_pallets = $E$48 (當月總板數)
     """
     if total_month_pallets >= 501:
         multiplier = 1.2
@@ -33,7 +31,7 @@ def calculate_bonus(base_amount, total_month_pallets):
     else:
         multiplier = 1.0
         
-    # 計算階梯加給 (只算乘數減 1 的增額部分，並加上 0.5 做四捨五入)
+    # 計算階梯加給
     bonus = int(base_amount * (multiplier - 1) + 0.5)
     return bonus
 
@@ -45,7 +43,7 @@ try:
     with st.form("daily_report_form", clear_on_submit=True):
         st.subheader("🚛 新增趟次紀錄")
         
-        # 第一排：時間與路線 (使用 4 個等寬欄位適合平板點擊)
+        # 第一排：時間與路線
         c1, c2, c3, c4 = st.columns(4)
         date = c1.date_input("運輸日期", datetime.today())
         start_time = c2.time_input("上班時間")
@@ -74,7 +72,7 @@ try:
             # 依據公式計算本趟基礎金額：合計板數40、空籃/2、空板3
             daily_base = (total_pallets * 40) + (empty_baskets / 2) + (empty_pallets * 3)
             
-            # 將資料寫入 Google Sheet (對應 A-O 欄位順序的延伸)
+            # 將資料寫入 Google Sheet
             row_data = [
                 str(date), str(start_time), str(end_time), route, 
                 start_mileage, end_mileage, mileage_diff,
@@ -90,30 +88,23 @@ try:
     st.write("---")
     st.subheader("📊 當月營運摘要與獎金計算")
     
-    # 讀取資料進行分析
     data = sheet.get_all_records()
     if data:
         df = pd.DataFrame(data)
-        
-        # 簡單過濾出當月的資料 (這裡用日期字串比對)
         current_month = datetime.today().strftime('%Y-%m')
         df_month = df[df['運輸日期'].str.startswith(current_month)]
         
         if not df_month.empty:
-            # 計算當月累積數據
             month_total_pallets = df_month['合計總板數'].sum() if '合計總板數' in df_month.columns else 0
             month_base_money = df_month['基礎金額'].sum() if '基礎金額' in df_month.columns else 0
             
-            # 呼叫 Python 版的 EXCEL 公式計算階梯獎金
             extra_bonus = calculate_bonus(month_base_money, month_total_pallets)
             
-            # 顯示在大數字看板上
             m1, m2, m3 = st.columns(3)
             m1.metric("當月累積總板數", f"{month_total_pallets} 板")
             m2.metric("當月累積基礎額", f"${int(month_base_money)}")
             m3.metric("預估階梯達標獎金", f"${extra_bonus}")
             
-            # 顯示歷史明細
             st.write("📋 歷史明細資料：")
             st.dataframe(df_month, use_container_width=True)
         else:
