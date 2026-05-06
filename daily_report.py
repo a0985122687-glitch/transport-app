@@ -1,155 +1,126 @@
 import streamlit as st
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import pandas as pd
-from datetime import datetime
 import time
+from datetime import datetime
 
-# 1. 頁面配置 (寬版顯示，方便查看對比表)
-st.set_page_config(page_title="運輸管理系統", page_icon="🚚", layout="wide")
-
-st.markdown("""
-    <style>
-    header[data-testid="stHeader"] { display: none !important; }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* 移除數字輸入框的調節按鈕並防止小數點 */
-    button[step="1"] { display: none !important; }
-    input[type=number] { -moz-appearance: textfield; }
-    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button {
-        -webkit-appearance: none; margin: 0;
-    }
-    
-    .stButton>button {
-        width: 100%; border-radius: 12px; background-color: #007BFF; 
-        color: white; height: 3.8em; font-size: 18px; font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
+# --- 網頁設定 (適合平板的寬螢幕模式) ---
+st.set_page_config(page_title="運輸日報表", page_icon="📝", layout="wide")
 st.title("📝 運輸日報表")
 
-# 2. 核心連線
-def get_sheet_and_data():
-    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+# --- 連線設定 ---
+def get_sheet():
+    scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    creds_dict = st.secrets["service_account"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
-    sheet = client.open("Transport_System_2026").get_worksheet(0)
+    # 請替換為您正確的試算表網址
+    sheet_url = "https://docs.google.com/spreadsheets/d/1VzyglFpEC3yS11aIoU1YJclw-6Moaewyf8DTR-j7HDc/edit?gid=0#gid=0"
+    return client.open_by_url(sheet_url).sheet1
+
+# --- 獎金計算模組 (完美移植 EXCEL 邏輯) ---
+def calculate_bonus(base_amount, total_month_pallets):
+    """
+    對應 EXCEL 公式: =INT(E17*(IF($E$48>=501,1.2,IF($E$48>=451,1.1,1))-1)+0.5)
+    base_amount = E17 (基礎金額)
+    total_month_pallets = $E$48 (當月總板數)
+    """
+    if total_month_pallets >= 501:
+        multiplier = 1.2
+    elif total_month_pallets >= 451:
+        multiplier = 1.1
+    else:
+        multiplier = 1.0
+        
+    # 計算階梯加給 (只算乘數減 1 的增額部分，並加上 0.5 做四捨五入)
+    bonus = int(base_amount * (multiplier - 1) + 0.5)
+    return bonus
+
+# --- 主程式 ---
+try:
+    sheet = get_sheet()
+    
+    # --- 區塊 1：資料輸入表單 ---
+    with st.form("daily_report_form", clear_on_submit=True):
+        st.subheader("🚛 新增趟次紀錄")
+        
+        # 第一排：時間與路線 (使用 4 個等寬欄位適合平板點擊)
+        c1, c2, c3, c4 = st.columns(4)
+        date = c1.date_input("運輸日期", datetime.today())
+        start_time = c2.time_input("上班時間")
+        end_time = c3.time_input("下班時間")
+        route = c4.selectbox("路線別", ["市區A線", "市區B線", "長途C線", "專車"])
+        
+        # 第二排：里程
+        c5, c6 = st.columns(2)
+        start_mileage = c5.number_input("里程 (起)", min_value=0, step=1)
+        end_mileage = c6.number_input("里程 (迄)", min_value=start_mileage, step=1)
+        
+        # 第三排：板數與籃數
+        c7, c8, c9, c10 = st.columns(4)
+        delivery_pallets = c7.number_input("配送點數 (板)", min_value=0, step=1)
+        pickup_pallets = c8.number_input("收貨點數 (板)", min_value=0, step=1)
+        empty_baskets = c9.number_input("空籃數", min_value=0, step=1)
+        empty_pallets = c10.number_input("空板數", min_value=0, step=1)
+        
+        submitted = st.form_submit_button("🚀 儲存紀錄")
+        
+        if submitted:
+            # 計算該趟的基本數據
+            total_pallets = delivery_pallets + pickup_pallets
+            mileage_diff = end_mileage - start_mileage
+            
+            # 依據公式計算本趟基礎金額：合計板數40、空籃/2、空板3
+            daily_base = (total_pallets * 40) + (empty_baskets / 2) + (empty_pallets * 3)
+            
+            # 將資料寫入 Google Sheet (對應 A-O 欄位順序的延伸)
+            row_data = [
+                str(date), str(start_time), str(end_time), route, 
+                start_mileage, end_mileage, mileage_diff,
+                delivery_pallets, pickup_pallets, total_pallets,
+                empty_baskets, empty_pallets, daily_base
+            ]
+            sheet.append_row(row_data)
+            st.success(f"✅ 紀錄成功！本趟總板數：{total_pallets} 板，行駛里程：{mileage_diff} 公里")
+            time.sleep(1)
+            st.rerun()
+
+    # --- 區塊 2：營運摘要與獎金預估 ---
+    st.write("---")
+    st.subheader("📊 當月營運摘要與獎金計算")
+    
+    # 讀取資料進行分析
     data = sheet.get_all_records()
-    df = pd.DataFrame(data) if data else pd.DataFrame()
-    if not df.empty:
-        df.columns = df.columns.str.strip()
-    return sheet, df
-
-# --- 3. 填報介面區 (嚴格依序排列) ---
-driver_options = ["請選擇填報人", "司機A", "司機B", "司機C", "司機D"]
-selected_driver = st.selectbox("👤 填報人", driver_options)
-
-if selected_driver != "請選擇填報人":
-    st.divider()
-    input_date = st.date_input("📅 運送日期", datetime.now())
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        start_time = st.selectbox("🕔 上班時間", ["04:00", "04:30", "05:00", "05:30", "06:00", "06:30", "07:00", "07:30", "08:00"], index=2)
-    with col_t2:
-        end_time = st.selectbox("🕔 下班時間", [f"{h}:{m:02d}" for h in range(12, 22) for m in (0, 30)], index=10)
-
-    route_name = st.selectbox("🛣️ 路線別", ["請選擇路線", "中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線", "其他"])
-    
-    # 加入配送點數手動填寫
-    customer_count = st.number_input("🏠 配送家數 (今日配送點數)", value=None, placeholder="請輸入點數", step=1)
-    
-    st.divider()
-    # 填報流程：里程起 -> 板數 -> 空籃 -> 空板 -> 里程迄
-    m_start = st.number_input("📈 里程(起)", value=None, placeholder="出車前里程", step=1)
-    p_sent = st.number_input("🚚 送板數", value=None, placeholder="數量", step=1)
-    p_recv = st.number_input("📥 收板數", value=None, placeholder="數量", step=1)
-    basket_count = st.number_input("🧺 空籃數", value=None, placeholder="數量", step=1)
-    plate_count = st.number_input("🔄 空板數", value=None, placeholder="數量", step=1)
-    m_end = st.number_input("📉 里程(迄)", value=None, placeholder="收車後里程", step=1)
-    remark = st.text_input("💬 備註")
-
-    if st.button("🚀 確認送出報表", use_container_width=True):
-        if route_name == "請選擇路線" or m_start is None or m_end is None or customer_count is None:
-            st.warning("⚠️ 路線、里程與點數皆為必填！")
+    if data:
+        df = pd.DataFrame(data)
+        
+        # 簡單過濾出當月的資料 (這裡用日期字串比對)
+        current_month = datetime.today().strftime('%Y-%m')
+        df_month = df[df['運輸日期'].str.startswith(current_month)]
+        
+        if not df_month.empty:
+            # 計算當月累積數據
+            month_total_pallets = df_month['合計總板數'].sum() if '合計總板數' in df_month.columns else 0
+            month_base_money = df_month['基礎金額'].sum() if '基礎金額' in df_month.columns else 0
+            
+            # 呼叫 Python 版的 EXCEL 公式計算階梯獎金
+            extra_bonus = calculate_bonus(month_base_money, month_total_pallets)
+            
+            # 顯示在大數字看板上
+            m1, m2, m3 = st.columns(3)
+            m1.metric("當月累積總板數", f"{month_total_pallets} 板")
+            m2.metric("當月累積基礎額", f"${int(month_base_money)}")
+            m3.metric("預估階梯達標獎金", f"${extra_bonus}")
+            
+            # 顯示歷史明細
+            st.write("📋 歷史明細資料：")
+            st.dataframe(df_month, use_container_width=True)
         else:
-            with st.spinner('數據同步中...'):
-                try:
-                    sheet, _ = get_sheet_and_data()
-                    actual_dist = int(m_end - m_start)
-                    ps, pr, bc, pc, cc = int(p_sent or 0), int(p_recv or 0), int(basket_count or 0), int(plate_count or 0), int(customer_count or 0)
-                    
-                    # 按照 A-O 欄位順序寫入試算表
-                    new_row = [selected_driver, str(input_date), start_time, end_time, route_name, int(m_start), int(m_end), actual_dist, ps, pr, ps+pr, bc, pc, cc, remark]
-                    sheet.append_row(new_row)
-                    st.success("🎉 存檔成功！畫面已自動重置。")
-                    time.sleep(1)
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"連線失敗：{e}")
+            st.info("當月尚無紀錄。")
+    else:
+        st.info("試算表目前是空的，快輸入第一筆資料吧！")
 
-# --- 4. 統計分析區 (對標 Excel 績效理論) ---
-st.divider()
-if st.button("📊 查看路線績效效益分析"):
-    with st.spinner('重新核算里程與生產力...'):
-        try:
-            _, df = get_sheet_and_data()
-            if not df.empty:
-                df['日期'] = df['日期'].astype(str)
-                this_month = datetime.now().strftime("%Y-%m")
-                month_data = df[df['日期'].str.contains(this_month)].copy()
-                
-                if not month_data.empty:
-                    # 數值化處理與防錯匹配
-                    map_cols = {'起': '里程(起)', '迄': '里程(迄)', '實際': '實際里程', '板數': '合計收送板數', '家數': '配送家數', '空籃': '空籃', '空板': '空板'}
-                    for k, v in map_cols.items():
-                        found = next((c for c in month_data.columns if v in c), None)
-                        month_data[k] = pd.to_numeric(month_data[found], errors='coerce').fillna(0) if found else 0
-
-                    # --- 核心摘要摘要 ---
-                    st.subheader(f"📅 {this_month} 營運摘要")
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("當月總趟數", f"{len(month_data)}")
-                    c2.metric("合計總板數", f"{int(month_data['板數'].sum())}")
-                    c3.metric("合計空籃", f"{int(month_data['空籃'].sum())}")
-                    c4.metric("合計空板", f"{int(month_data['空板'].sum())}")
-
-                    # --- 路線生產力排名分析 ---
-                    analysis = month_data.groupby('路線別').agg({
-                        '日期': 'count',
-                        '起': 'sum',
-                        '迄': 'sum',
-                        '實際': 'sum',
-                        '板數': 'sum',
-                        '家數': 'sum'
-                    }).reset_index()
-                    analysis.columns = ['路線別', '趟次', '總起點', '總迄點', '總實際里程', '總板數', '總家數']
-                    
-                    # 修正：平均里程公式 = ((總起點 + 總迄點) - 總實際里程) / 趟次
-                    analysis['平均里程'] = (((analysis['總起點'] + analysis['總迄點']) - analysis['總實際里程']) / analysis['趟次']).round(0).astype(int)
-                    
-                    # 修正：平均點數 = 總家數 / 趟次
-                    analysis['平均點數'] = (analysis['總家數'] / analysis['趟次']).round(1)
-                    
-                    # 績效生產力 = 總板數 / (平均里程 * 0.4 + 平均點數 * 0.6) -> 分母為成本加權
-                    def calc_prod(row):
-                        denominator = (row['平均里程'] * 0.4) + (row['平均點數'] * 0.6)
-                        if denominator == 0: return 0
-                        return round((row['總板數'] / denominator) * 10, 1)
-
-                    analysis['生產力指標'] = analysis.apply(calc_prod, axis=1)
-                    analysis['績效排名'] = analysis['生產力指標'].rank(ascending=False, method='min').astype(int)
-
-                    st.write("🛣️ 路線績效對照表 (依生產力排名)：")
-                    view_df = analysis[['績效排名', '路線別', '趟次', '平均里程', '平均點數', '總板數', '生產力指標']]
-                    st.dataframe(view_df.sort_values('績效排名'), use_container_width=True, hide_index=True)
-                    
-                    # 獎金合計 (板數*40 + 空籃/2 + 空板*3) [cite: 2026-01-21]
-                    total_bonus = int(month_data['板數'].sum() * 40 + month_data['空籃'].sum() / 2 + month_data['空板'].sum() * 3)
-                    st.success(f"💰 當月預估獎金合計：{total_bonus} 元")
-                    
-                else:
-                    st.warning("本月尚無資料。")
-        except Exception as e:
-            st.error(f"分析失敗：{e}")
+except Exception as e:
+    st.error("系統發生錯誤，請檢查連線或試算表欄位設定。")
+    st.write(f"錯誤詳細資訊：{e}")
