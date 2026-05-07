@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta
 
 # --- 網頁與版面設定 ---
-st.set_page_config(page_title="運輸日報表分析", page_icon="🚛", layout="wide")
+st.set_page_config(page_title="運輸日報表分析系統", page_icon="🚛", layout="wide")
 st.title("🚛 運輸日報表分析")
 
 # --- 連線設定 ---
@@ -18,7 +18,7 @@ def get_sheet():
     sheet_url = "https://docs.google.com/spreadsheets/d/1VzyglFpEC3yS11aIoU1YJclw-6Moaewyf8DTR-j7HDc/edit?gid=0#gid=0"
     return client.open_by_url(sheet_url).sheet1
 
-# --- 工時計算小工具 ---
+# --- 工具函數 ---
 def calculate_work_hours(start_str, end_str):
     try:
         start = datetime.strptime(str(start_str), "%H:%M")
@@ -36,7 +36,6 @@ try:
     # --- 區塊 1：資料輸入表單 ---
     with st.form("daily_report_form", clear_on_submit=True):
         st.subheader("📝 趟次紀錄")
-        
         c1, c2, c3, c4 = st.columns(4)
         date = c1.date_input("運輸日期", datetime.today())
         
@@ -68,147 +67,102 @@ try:
             if start_mileage is None or end_mileage is None:
                 st.error("⚠️ 請輸入完整的「起/迄」里程數！")
             else:
-                p_del_pallets = delivery_pallets or 0
-                p_pick_pallets = pickup_pallets or 0
-                p_del_stops = delivery_stops or 0
-                p_pick_stops = pickup_stops or 0
-                p_baskets = empty_baskets or 0
-                p_empty_pallets = empty_pallets or 0
+                p_del_pallets, p_pick_pallets = delivery_pallets or 0, pickup_pallets or 0
+                p_del_stops, p_pick_stops = delivery_stops or 0, pickup_stops or 0
+                p_baskets, p_empty_pallets = empty_baskets or 0, empty_pallets or 0
 
                 total_pallets = p_del_pallets + p_pick_pallets
                 mileage_diff = end_mileage - start_mileage
                 
-                row_data = [
-                    str(date), start_time, end_time, route, 
-                    start_mileage, end_mileage, mileage_diff,
-                    p_del_stops, p_del_pallets, p_pick_stops, p_pick_pallets, 
-                    total_pallets, p_baskets, p_empty_pallets
-                ]
+                row_data = [str(date), start_time, end_time, route, start_mileage, end_mileage, mileage_diff, p_del_stops, p_del_pallets, p_pick_stops, p_pick_pallets, total_pallets, p_baskets, p_empty_pallets]
                 sheet.append_row(row_data)
-                st.success(f"✅ 成功寫入！本趟 {route} 共 {total_pallets} 板，行駛里程：{mileage_diff} 公里。")
+                st.success(f"✅ 成功寫入！本趟 {route} 共 {total_pallets} 板，實際行駛里程：{mileage_diff} 公里。")
                 time.sleep(1.5)
                 st.rerun()
 
     # --- 區塊 2：戰情分析儀表板 ---
     st.write("---")
-    st.subheader("📊 當月戰情分析與預警系統")
+    st.subheader("📊 營運數據分析與指標")
     
     raw_data = sheet.get_all_values()
     
     if len(raw_data) > 1:
         headers = [str(h).strip() for h in raw_data[0]]
-        df = pd.DataFrame(raw_data[1:], columns=headers)
+        df_all = pd.DataFrame(raw_data[1:], columns=headers)
         
-        if '運輸日期' in df.columns and '行駛里程' in df.columns:
-            current_month = datetime.today().strftime('%Y-%m')
-            df_month = df[df['運輸日期'].astype(str).str.startswith(current_month)].copy()
-            
-            if not df_month.empty:
-                numeric_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '配送點數', '收貨點數']
-                for col in numeric_cols:
-                    if col in df_month.columns:
-                        df_month[col] = pd.to_numeric(df_month[col], errors='coerce').fillna(0)
-                        
-                # 1. 解構性數據計算
-                month_total_pallets = int(df_month['合計總板數'].sum())
-                month_empty_baskets = int(df_month['空籃數'].sum())
-                month_empty_pallets = int(df_month['空板數'].sum())
-                month_total_mileage = int(df_month['行駛里程'].sum())
-                
-                # 工時與加班計算 (以半小時為單位記錄加班)
-                df_month['工時'] = df_month.apply(lambda row: calculate_work_hours(row['上班時間'], row['下班時間']), axis=1)
-                overtime_trips = df_month[df_month['工時'] > 10].copy()
-                overtime_trips['加班時數(單位:0.5H)'] = ((overtime_trips['工時'] - 10) * 2).astype(int) / 2
-                total_overtime_hours = overtime_trips['加班時數(單位:0.5H)'].sum()
-                
-                # 2. 階梯獎金計算
-                # 基礎公式：合計板數40、空籃/2、空板3
-                base_bonus = (month_total_pallets * 40) + (month_empty_baskets * 0.5) + (month_empty_pallets * 3)
-                
-                # 判斷倍率
-                if month_total_pallets >= 501:
-                    multiplier = 1.2
-                    multiplier_text = "1.2 倍 (≧501板)"
-                elif month_total_pallets >= 451:
-                    multiplier = 1.1
-                    multiplier_text = "1.1 倍 (≧451板)"
-                else:
-                    multiplier = 1.0
-                    multiplier_text = "1.0 倍 (一般)"
-                    
-                final_bonus = int(base_bonus * multiplier)
-                
-                # --- 第一層 KPI：解構性產能看板 ---
-                st.markdown("#### 📦 當月解構性產能與工時")
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("合計總板數", f"{month_total_pallets} 板")
-                k2.metric("回收空板數", f"{month_empty_pallets} 板")
-                k3.metric("回收空籃數", f"{month_empty_baskets} 籃")
-                if total_overtime_hours > 0:
-                    k4.error(f"當月累計加班: {total_overtime_hours} H")
-                else:
-                    k4.metric("當月累計加班", "0 H")
-                
-                # --- 第二層 KPI：階梯獎金試算 ---
-                st.markdown("#### 💰 當月階梯獎金試算 (基礎:板40/空籃0.5/空板3)")
-                b1, b2, b3 = st.columns(3)
-                b1.metric("當月基礎獎金", f"${int(base_bonus):,}")
-                b2.metric("目前階梯倍率", multiplier_text)
-                b3.metric("💰 預估總獎金", f"${final_bonus:,}")
+        # 資料轉換與清理
+        df_all['月份'] = df_all['運輸日期'].apply(lambda x: str(x)[:7])
+        numeric_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '配送點數', '收貨點數']
+        for col in numeric_cols:
+            df_all[col] = pd.to_numeric(df_all[col], errors='coerce').fillna(0)
+        df_all['工時'] = df_all.apply(lambda row: calculate_work_hours(row['上班時間'], row['下班時間']), axis=1)
+        df_all['總點數'] = df_all['配送點數'] + df_all['收貨點數']
 
-                # ==========================================
-                # 視覺化里程分析與路線指標
-                # ==========================================
-                st.write("---")
-                st.markdown("### 🗺️ 路線里程與單月營運分析")
+        current_month = datetime.today().strftime('%Y-%m')
+        
+        # --- 依月份分層顯示路線別指標 ---
+        st.markdown("### 📋 路線別指標 (年度分月明細)")
+        
+        unique_months = sorted(df_all['月份'].unique(), reverse=True)
+        
+        for month in unique_months:
+            is_expanded = (month == current_month)
+            with st.expander(f"📅 {month} 營運分析報表", expanded=is_expanded):
+                df_month = df_all[df_all['月份'] == month].copy()
                 
-                chart_col1, chart_col2 = st.columns(2)
-                with chart_col1:
-                    st.caption("📅 每日各路線里程趨勢 (KM)")
-                    daily_route_mileage = df_month.pivot_table(index='運輸日期', columns='路線別', values='行駛里程', aggfunc='sum').fillna(0)
-                    st.line_chart(daily_route_mileage)
-
-                with chart_col2:
-                    st.caption("📊 各路線平均行駛里程 (KM)")
-                    route_avg_mileage = df_month.groupby('路線別')['行駛里程'].mean().round(1)
-                    st.bar_chart(route_avg_mileage)
-
-                st.markdown("### 📋 路線綜合指標矩陣 (排除自創效益值)")
-                
-                df_month['總點數'] = df_month['配送點數'] + df_month['收貨點數']
+                # 計算該月各項統計
                 route_group = df_month.groupby('路線別').agg({
                     '運輸日期': 'count',
+                    '合計總板數': ['sum', 'mean'],
                     '工時': 'mean',
                     '行駛里程': 'mean',
-                    '合計總板數': 'mean',
                     '總點數': 'mean'
                 }).reset_index()
                 
-                route_group.rename(columns={'運輸日期': '趟數', '工時': '平均工時', '行駛里程': '平均里程', '合計總板數': '平均板數', '總點數': '平均點數'}, inplace=True)
+                # 重新定義欄位名稱與順序
+                route_group.columns = ['路線別', '趟數', '總板數', '平均板數', '平均工時', '平均里程', '平均點數']
                 
-                # 保留直觀的稼動率與滿載率
+                # 計算派車指標
                 route_group['工時稼動(%)'] = (route_group['平均工時'] / 24) * 100
                 route_group['趟次滿載率(%)'] = (route_group['平均板數'] / 28) * 100
-
+                
+                # 效益值 (VRP 邏輯計算)
+                def calc_vrp(row):
+                    p, s, h, m = row['平均板數'], row['平均點數'] or 1, row['平均工時'] or 1, row['平均里程'] or 1
+                    return round((p / 50) * (5 / s) * (10 / h) * (100 / m) * 100, 1)
+                
+                route_group['效益值(VRP)'] = route_group.apply(calc_vrp, axis=1)
+                
+                # 顯示表格並隱藏索引
                 st.dataframe(route_group.style.format({
                     "平均工時": "{:.1f} H",
                     "平均里程": "{:.1f} KM",
                     "平均板數": "{:.1f} 板",
+                    "總板數": "{:,.0f} 板",
                     "平均點數": "{:.1f} 點",
                     "工時稼動(%)": "{:.1f}%",
-                    "趟次滿載率(%)": "{:.1f}%"
-                }), use_container_width=True)
-                
-            else:
-                st.info(f"目前 {current_month} 尚無資料，請輸入您的第一趟任務。")
-        else:
-            st.error(f"⚠️ 標題對應失敗！目前抓到的標題是：{headers}")
+                    "趟次滿載率(%)": "{:.1f}%",
+                    "效益值(VRP)": "{:.1f}"
+                }), use_container_width=True, hide_index=True)
+
+        # --- 視覺化圖表區 ---
+        st.write("---")
+        st.markdown("### 📈 年度分析圖表")
+        c_left, c_right = st.columns(2)
+        
+        with c_left:
+            st.caption("🏆 年度每月板數比對")
+            month_stats = df_all.groupby('月份')['合計總板數'].sum()
+            st.bar_chart(month_stats)
             
-    elif len(raw_data) == 1:
-        st.info("💡 試算表已經完美連結！目前資料庫是空的，趕快按下上方按鈕，儲存您的第一筆紀錄吧！")
+        with c_right:
+            st.caption("🚚 當月路線滿載率 (%)")
+            if not df_all[df_all['月份'] == current_month].empty:
+                current_route_stats = df_all[df_all['月份'] == current_month].groupby('路線別')['合計總板數'].mean() / 28 * 100
+                st.line_chart(current_route_stats)
+
     else:
-        st.error("⚠️ 試算表完全空白，請確認第一列是否已貼上標題。")
+        st.info("💡 試算表連結成功，目前尚無資料。")
 
 except Exception as e:
-    st.error("系統連線異常或資料庫格式錯誤。")
-    st.write(f"系統除錯訊息：{e}")
+    st.error(f"系統異常：{e}")
