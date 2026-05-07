@@ -49,35 +49,49 @@ try:
         route = c4.selectbox("路線別", routes)
         
         c5, c6 = st.columns(2)
-        start_mileage = c5.number_input("里程 (起)", min_value=0, step=1)
-        end_mileage = c6.number_input("里程 (迄)", min_value=start_mileage, step=1)
+        # 加入 value=None，讓格子預設為空白，不用再刪除 0
+        start_mileage = c5.number_input("里程 (起)", min_value=0, step=1, value=None, placeholder="輸入起始里程")
+        end_mileage = c6.number_input("里程 (迄)", min_value=0, step=1, value=None, placeholder="輸入結束里程")
         
         st.write("---")
-        st.caption("作業數據")
+        st.caption("作業數據 (無資料請留白)")
         c7, c8, c9, c10, c11, c12 = st.columns(6)
-        delivery_stops = c7.number_input("配送點數", min_value=0, step=1)
-        delivery_pallets = c8.number_input("配送板數", min_value=0, step=1)
-        pickup_stops = c9.number_input("收貨點數", min_value=0, step=1)
-        pickup_pallets = c10.number_input("收貨板數", min_value=0, step=1)
-        empty_baskets = c11.number_input("空籃數", min_value=0, step=1)
-        empty_pallets = c12.number_input("空板數", min_value=0, step=1)
+        # 全部設為 value=None，提升平板輸入流暢度
+        delivery_stops = c7.number_input("配送點數", min_value=0, step=1, value=None)
+        delivery_pallets = c8.number_input("配送板數", min_value=0, step=1, value=None)
+        pickup_stops = c9.number_input("收貨點數", min_value=0, step=1, value=None)
+        pickup_pallets = c10.number_input("收貨板數", min_value=0, step=1, value=None)
+        empty_baskets = c11.number_input("空籃數", min_value=0, step=1, value=None)
+        empty_pallets = c12.number_input("空板數", min_value=0, step=1, value=None)
         
         submitted = st.form_submit_button("🚀 儲存紀錄")
         
         if submitted:
-            total_pallets = delivery_pallets + pickup_pallets
-            mileage_diff = end_mileage - start_mileage  # 核心運算：迄減掉起
-            
-            row_data = [
-                str(date), start_time, end_time, route, 
-                start_mileage, end_mileage, mileage_diff,
-                delivery_stops, delivery_pallets, pickup_stops, pickup_pallets, 
-                total_pallets, empty_baskets, empty_pallets
-            ]
-            sheet.append_row(row_data)
-            st.success(f"✅ 成功寫入！本趟 {route}，共 {total_pallets} 板，實際行駛里程：{mileage_diff} 公里。")
-            time.sleep(1)
-            st.rerun()
+            # 防呆：檢查是否忘記填寫里程
+            if start_mileage is None or end_mileage is None:
+                st.error("⚠️ 請輸入完整的「起/迄」里程數！")
+            else:
+                # 若留白(None)，則自動視為 0 計算，不影響公式
+                p_del_pallets = delivery_pallets or 0
+                p_pick_pallets = pickup_pallets or 0
+                p_del_stops = delivery_stops or 0
+                p_pick_stops = pickup_stops or 0
+                p_baskets = empty_baskets or 0
+                p_empty_pallets = empty_pallets or 0
+
+                total_pallets = p_del_pallets + p_pick_pallets
+                mileage_diff = end_mileage - start_mileage
+                
+                row_data = [
+                    str(date), start_time, end_time, route, 
+                    start_mileage, end_mileage, mileage_diff,
+                    p_del_stops, p_del_pallets, p_pick_stops, p_pick_pallets, 
+                    total_pallets, p_baskets, p_empty_pallets
+                ]
+                sheet.append_row(row_data)
+                st.success(f"✅ 成功寫入！本趟 {route} 共 {total_pallets} 板，行駛里程：{mileage_diff} 公里。")
+                time.sleep(1.5)
+                st.rerun()
 
     # --- 區塊 2：戰情分析儀表板 ---
     st.write("---")
@@ -94,7 +108,6 @@ try:
             df_month = df[df['運輸日期'].astype(str).str.startswith(current_month)].copy()
             
             if not df_month.empty:
-                # --- 數據清理與轉型 ---
                 numeric_cols = ['行駛里程', '合計總板數', '配送點數', '收貨點數']
                 for col in numeric_cols:
                     if col in df_month.columns:
@@ -122,13 +135,33 @@ try:
                 else:
                     k4.metric("超時(>10H)趟次", "0 趟 ✅")
 
-                # --- 專業路線效益分析 (對齊 EXCEL 邏輯) ---
+                # ==========================================
+                # 🔥 新增：視覺化里程分析區塊
+                # ==========================================
                 st.write("---")
-                st.markdown("### 📈 路線稼動與效益可視化")
+                st.markdown("### 🗺️ 路線里程與年度趨勢準備區")
+                
+                chart_col1, chart_col2 = st.columns(2)
+                
+                with chart_col1:
+                    st.caption("📅 每日各路線里程趨勢 (KM)")
+                    # 將資料整理成：日期為 X 軸，路線為線條，里程為 Y 軸
+                    daily_route_mileage = df_month.pivot_table(index='運輸日期', columns='路線別', values='行駛里程', aggfunc='sum').fillna(0)
+                    st.line_chart(daily_route_mileage)
+
+                with chart_col2:
+                    st.caption("📊 各路線平均行駛里程 (KM)")
+                    # 計算每條路線的「平均」里程
+                    route_avg_mileage = df_month.groupby('路線別')['行駛里程'].mean().round(1)
+                    st.bar_chart(route_avg_mileage)
+
+                # ==========================================
+                # 路線綜合指標矩陣
+                # ==========================================
+                st.write("---")
+                st.markdown("### 📋 路線綜合指標矩陣")
                 
                 df_month['總點數'] = df_month['配送點數'] + df_month['收貨點數']
-                
-                # 群組計算每條路線的平均值
                 route_group = df_month.groupby('路線別').agg({
                     '運輸日期': 'count',
                     '工時': 'mean',
@@ -139,11 +172,9 @@ try:
                 
                 route_group.rename(columns={'運輸日期': '趟數', '工時': '平均工時', '行駛里程': '平均里程', '合計總板數': '平均板數', '總點數': '平均點數'}, inplace=True)
                 
-                # 計算稼動與滿載率 (依照 24小時 與 28板滿載 基準)
                 route_group['工時稼動(%)'] = (route_group['平均工時'] / 24) * 100
                 route_group['趟次滿載率(%)'] = (route_group['平均板數'] / 28) * 100
                 
-                # 植入您的 VRP 核心效益公式
                 def calc_vrp(row):
                     p = row['平均板數']
                     s = row['平均點數'] if row['平均點數'] > 0 else 1
@@ -153,17 +184,7 @@ try:
                     return round(score, 1)
                     
                 route_group['效益值(VRP)'] = route_group.apply(calc_vrp, axis=1)
-                
-                # 自動繪製圖表
-                chart_col1, chart_col2 = st.columns(2)
-                with chart_col1:
-                    st.caption("🏆 各路線綜合效益值 (VRP 基準: 100分)")
-                    st.bar_chart(route_group.set_index('路線別')['效益值(VRP)'])
-                with chart_col2:
-                    st.caption("📦 路線趟次滿載率 (%)")
-                    st.line_chart(route_group.set_index('路線別')['趟次滿載率(%)'])
 
-                st.markdown("### 📋 路線綜合指標矩陣")
                 st.dataframe(route_group.style.format({
                     "平均工時": "{:.1f} H",
                     "平均里程": "{:.1f} KM",
