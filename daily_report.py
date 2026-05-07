@@ -49,14 +49,12 @@ try:
         route = c4.selectbox("路線別", routes)
         
         c5, c6 = st.columns(2)
-        # 加入 value=None，讓格子預設為空白，不用再刪除 0
         start_mileage = c5.number_input("里程 (起)", min_value=0, step=1, value=None, placeholder="輸入起始里程")
         end_mileage = c6.number_input("里程 (迄)", min_value=0, step=1, value=None, placeholder="輸入結束里程")
         
         st.write("---")
         st.caption("作業數據 (無資料請留白)")
         c7, c8, c9, c10, c11, c12 = st.columns(6)
-        # 全部設為 value=None，提升平板輸入流暢度
         delivery_stops = c7.number_input("配送點數", min_value=0, step=1, value=None)
         delivery_pallets = c8.number_input("配送板數", min_value=0, step=1, value=None)
         pickup_stops = c9.number_input("收貨點數", min_value=0, step=1, value=None)
@@ -67,11 +65,9 @@ try:
         submitted = st.form_submit_button("🚀 儲存紀錄")
         
         if submitted:
-            # 防呆：檢查是否忘記填寫里程
             if start_mileage is None or end_mileage is None:
                 st.error("⚠️ 請輸入完整的「起/迄」里程數！")
             else:
-                # 若留白(None)，則自動視為 0 計算，不影響公式
                 p_del_pallets = delivery_pallets or 0
                 p_pick_pallets = pickup_pallets or 0
                 p_del_stops = delivery_stops or 0
@@ -108,58 +104,76 @@ try:
             df_month = df[df['運輸日期'].astype(str).str.startswith(current_month)].copy()
             
             if not df_month.empty:
-                numeric_cols = ['行駛里程', '合計總板數', '配送點數', '收貨點數']
+                numeric_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '配送點數', '收貨點數']
                 for col in numeric_cols:
                     if col in df_month.columns:
                         df_month[col] = pd.to_numeric(df_month[col], errors='coerce').fillna(0)
                         
+                # 1. 解構性數據計算
                 month_total_pallets = int(df_month['合計總板數'].sum())
+                month_empty_baskets = int(df_month['空籃數'].sum())
+                month_empty_pallets = int(df_month['空板數'].sum())
                 month_total_mileage = int(df_month['行駛里程'].sum())
                 
+                # 工時與加班計算 (以半小時為單位記錄加班)
                 df_month['工時'] = df_month.apply(lambda row: calculate_work_hours(row['上班時間'], row['下班時間']), axis=1)
-                avg_hours = df_month['工時'].mean()
-                overtime_count = len(df_month[df_month['工時'] > 10])
+                overtime_trips = df_month[df_month['工時'] > 10].copy()
+                overtime_trips['加班時數(單位:0.5H)'] = ((overtime_trips['工時'] - 10) * 2).astype(int) / 2
+                total_overtime_hours = overtime_trips['加班時數(單位:0.5H)'].sum()
                 
-                # --- KPI 看板 ---
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("當月累積總板數", f"{month_total_pallets} 板")
-                k2.metric("當月總行駛里程", f"{month_total_mileage} KM")
+                # 2. 階梯獎金計算
+                # 基礎公式：合計板數40、空籃/2、空板3
+                base_bonus = (month_total_pallets * 40) + (month_empty_baskets * 0.5) + (month_empty_pallets * 3)
                 
-                if avg_hours > 10:
-                    k3.error(f"平均工時: {avg_hours:.1f} 小時 (超時!)")
+                # 判斷倍率
+                if month_total_pallets >= 501:
+                    multiplier = 1.2
+                    multiplier_text = "1.2 倍 (≧501板)"
+                elif month_total_pallets >= 451:
+                    multiplier = 1.1
+                    multiplier_text = "1.1 倍 (≧451板)"
                 else:
-                    k3.metric("平均單趟工時", f"{avg_hours:.1f} 小時")
+                    multiplier = 1.0
+                    multiplier_text = "1.0 倍 (一般)"
                     
-                if overtime_count > 0:
-                    k4.error(f"超時(>10H)趟次: {overtime_count} 趟 ⚠️")
+                final_bonus = int(base_bonus * multiplier)
+                
+                # --- 第一層 KPI：解構性產能看板 ---
+                st.markdown("#### 📦 當月解構性產能與工時")
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("合計總板數", f"{month_total_pallets} 板")
+                k2.metric("回收空板數", f"{month_empty_pallets} 板")
+                k3.metric("回收空籃數", f"{month_empty_baskets} 籃")
+                if total_overtime_hours > 0:
+                    k4.error(f"當月累計加班: {total_overtime_hours} H")
                 else:
-                    k4.metric("超時(>10H)趟次", "0 趟 ✅")
+                    k4.metric("當月累計加班", "0 H")
+                
+                # --- 第二層 KPI：階梯獎金試算 ---
+                st.markdown("#### 💰 當月階梯獎金試算 (基礎:板40/空籃0.5/空板3)")
+                b1, b2, b3 = st.columns(3)
+                b1.metric("當月基礎獎金", f"${int(base_bonus):,}")
+                b2.metric("目前階梯倍率", multiplier_text)
+                b3.metric("💰 預估總獎金", f"${final_bonus:,}")
 
                 # ==========================================
-                # 🔥 新增：視覺化里程分析區塊
+                # 視覺化里程分析與路線指標
                 # ==========================================
                 st.write("---")
-                st.markdown("### 🗺️ 路線里程與年度趨勢準備區")
+                st.markdown("### 🗺️ 路線里程與單月營運分析")
                 
                 chart_col1, chart_col2 = st.columns(2)
-                
                 with chart_col1:
                     st.caption("📅 每日各路線里程趨勢 (KM)")
-                    # 將資料整理成：日期為 X 軸，路線為線條，里程為 Y 軸
                     daily_route_mileage = df_month.pivot_table(index='運輸日期', columns='路線別', values='行駛里程', aggfunc='sum').fillna(0)
                     st.line_chart(daily_route_mileage)
 
                 with chart_col2:
                     st.caption("📊 各路線平均行駛里程 (KM)")
-                    # 計算每條路線的「平均」里程
                     route_avg_mileage = df_month.groupby('路線別')['行駛里程'].mean().round(1)
                     st.bar_chart(route_avg_mileage)
 
-                # ==========================================
-                # 路線綜合指標矩陣
-                # ==========================================
-                st.write("---")
-                st.markdown("### 📋 路線綜合指標矩陣")
+                st.markdown("### 📋 路線綜合指標矩陣 (排除自創效益值)")
                 
                 df_month['總點數'] = df_month['配送點數'] + df_month['收貨點數']
                 route_group = df_month.groupby('路線別').agg({
@@ -172,18 +186,9 @@ try:
                 
                 route_group.rename(columns={'運輸日期': '趟數', '工時': '平均工時', '行駛里程': '平均里程', '合計總板數': '平均板數', '總點數': '平均點數'}, inplace=True)
                 
+                # 保留直觀的稼動率與滿載率
                 route_group['工時稼動(%)'] = (route_group['平均工時'] / 24) * 100
                 route_group['趟次滿載率(%)'] = (route_group['平均板數'] / 28) * 100
-                
-                def calc_vrp(row):
-                    p = row['平均板數']
-                    s = row['平均點數'] if row['平均點數'] > 0 else 1
-                    h = row['平均工時'] if row['平均工時'] > 0 else 1
-                    m = row['平均里程'] if row['平均里程'] > 0 else 1
-                    score = (p / 50) * (5 / s) * (10 / h) * (100 / m) * 100
-                    return round(score, 1)
-                    
-                route_group['效益值(VRP)'] = route_group.apply(calc_vrp, axis=1)
 
                 st.dataframe(route_group.style.format({
                     "平均工時": "{:.1f} H",
@@ -191,8 +196,7 @@ try:
                     "平均板數": "{:.1f} 板",
                     "平均點數": "{:.1f} 點",
                     "工時稼動(%)": "{:.1f}%",
-                    "趟次滿載率(%)": "{:.1f}%",
-                    "效益值(VRP)": "{:.1f} 分"
+                    "趟次滿載率(%)": "{:.1f}%"
                 }), use_container_width=True)
                 
             else:
