@@ -9,39 +9,38 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="運輸日報表分析系統", page_icon="🚛", layout="wide")
 st.title("🚛 運輸日報表分析")
 
-# --- 連線設定 ---
+# --- 連線設定 (退回最穩定版本，不再跳錯) ---
 def get_sheet():
-    try:
-        scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-        # 安全取得金鑰
-        creds_dict = st.secrets.get("service_account")
-        if not creds_dict:
-            st.error("找不到金鑰設定 (st.secrets)")
-            return None
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        client = gspread.authorize(creds)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1VzyglFpEC3yS11aIoU1YJclw-6Moaewyf8DTR-j7HDc/edit?gid=0#gid=0"
-        return client.open_by_url(sheet_url).sheet1
-    except Exception as e:
-        st.error(f"連線失敗: {e}")
-        return None
+    scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    creds_dict = st.secrets["service_account"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    sheet_url = "https://docs.google.com/spreadsheets/d/1VzyglFpEC3yS11aIoU1YJclw-6Moaewyf8DTR-j7HDc/edit?gid=0#gid=0"
+    return client.open_by_url(sheet_url).sheet1
 
-# --- 工具函數 ---
+# --- 工具函數 (升級：支援 EXCEL 帶有秒數的格式) ---
 def calculate_work_hours(start_str, end_str):
     try:
-        start = datetime.strptime(str(start_str).strip(), "%H:%M")
-        end = datetime.strptime(str(end_str).strip(), "%H:%M")
+        s_str = str(start_str).strip()
+        e_str = str(end_str).strip()
+        # 自動判斷有沒有秒數 (解決 Excel 貼上來的 05:00:00 問題)
+        fmt_s = "%H:%M:%S" if s_str.count(':') == 2 else "%H:%M"
+        fmt_e = "%H:%M:%S" if e_str.count(':') == 2 else "%H:%M"
+        start = datetime.strptime(s_str, fmt_s)
+        end = datetime.strptime(e_str, fmt_e)
         if end < start:
             end += timedelta(days=1)
         return (end - start).total_seconds() / 3600
     except:
         return 0
 
-# ==========================================
-# 🟢 第一階段：輸入區塊 (保持完美現狀)
-# ==========================================
-sheet = get_sheet()
-if sheet:
+# --- 主程式 ---
+try:
+    sheet = get_sheet()
+    
+    # ==========================================
+    # 🟢 第一階段：輸入區塊 (保持完美現狀)
+    # ==========================================
     with st.form("daily_report_form", clear_on_submit=True):
         st.subheader("📝 趟次紀錄")
         st.markdown("##### ▶️ 出車整備作業")
@@ -86,104 +85,92 @@ if sheet:
                 st.rerun()
 
     # ==========================================
-    # 🟡 數據讀取與清洗
+    # 資料清洗與年度數據彙整
     # ==========================================
-    try:
-        all_raw = sheet.get_all_values()
-        actual_data = [row for row in all_raw if any(str(cell).strip() for cell in row)]
+    all_raw = sheet.get_all_values()
+    actual_data = [row for row in all_raw if any(str(cell).strip() for cell in row)]
+    
+    if len(actual_data) > 1:
+        headers = [str(h).strip() for h in actual_data[0]]
+        df_all = pd.DataFrame(actual_data[1:], columns=headers)
         
-        if len(actual_data) > 1:
-            headers = [str(h).strip() for h in actual_data[0]]
-            df_all = pd.DataFrame(actual_data[1:], columns=headers)
-            
-            # 轉換數值欄位，避免 KeyError 或運算錯誤
+        if '合計總板數' in df_all.columns:
             df_all['年份'] = df_all['運輸日期'].astype(str).str[:4]
             df_all['月份'] = df_all['運輸日期'].astype(str).str[:7]
             num_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '總點數', '配送板數', '收貨板數']
             for col in num_cols:
                 if col in df_all.columns:
                     df_all[col] = pd.to_numeric(df_all[col].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
-            
             df_all['工時'] = df_all.apply(lambda row: calculate_work_hours(row.get('上班時間','00:00'), row.get('下班時間','00:00')), axis=1)
 
             st.write("---")
             st.subheader("📊 營運數據分析與指標")
-            
+
             # ==========================================
-            # 🟡 第二階段：營運圖表區
+            # 🟡 第二階段：營運圖表區 (保持原狀)
             # ==========================================
             c_chart1, c_chart2 = st.columns(2)
             with c_chart1:
                 st.caption("🏆 年度每月總板數趨勢")
-                month_stats = df_all.groupby('月份')['合計總板數'].sum()
-                st.bar_chart(month_stats)
-            
+                st.bar_chart(df_all.groupby('月份')['合計總板數'].sum())
             with c_chart2:
                 st.caption("🎯 當月各路線效益指標 (VRP基準)")
                 current_m = datetime.today().strftime('%Y-%m')
                 df_cm = df_all[df_all['月份'] == current_m]
                 if not df_cm.empty:
                     route_eff = df_cm.groupby('路線別').agg({'合計總板數':'mean','總點數':'mean','工時':'mean','行駛里程':'mean'}).reset_index()
-                    # 效益值公式：基準 100分
                     route_eff['效益值'] = route_eff.apply(lambda r: round((r['合計總板數']/50)*(5/(r['總點數'] or 1))*(10/(r['工時'] or 1))*(100/(r['行駛里程'] or 1))*100, 1), axis=1)
                     st.bar_chart(route_eff.set_index('路線別')['效益值'])
-                else:
-                    st.info("當月尚無資料")
 
             # ==========================================
-            # 🔴 第三階段：明細展開區 (年度總表 + 每月明細)
+            # 🔴 第三階段：獎金與路線報表 (全新年度展開功能)
             # ==========================================
             st.write("---")
             st.subheader("📋 營運報表明細")
             
-            # 1. 年度總表 (1-12月彙整)
+            # 1. 年度總表展開
             current_year = datetime.today().strftime('%Y')
-            with st.expander(f"🗓️ {current_year} 年度營運總結報告", expanded=False):
+            with st.expander(f"🗓️ {current_year} 年度營運總表 (1-12月彙整)", expanded=False):
                 df_y = df_all[df_all['年份'] == current_year].copy()
                 if not df_y.empty:
                     y_sum = df_y.groupby('月份').agg({'合計總板數':'sum', '空籃數':'sum', '空板數':'sum', '行駛里程':'sum', '運輸日期':'count'}).reset_index()
-                    y_sum.columns = ['月份', '總板數', '總空籃', '總空板', '總里程', '趟數']
+                    y_sum.columns = ['月份', '月總板數', '月總空籃', '月總空板', '月總里程', '趟數']
                     
                     def calc_y_bonus(row):
-                        base = (row['總板數']*40) + (row['總空籃']*0.5) + (row['總空板']*3)
-                        multi = 1.2 if row['總板數']>=501 else (1.1 if row['總板數']>=451 else 1.0)
+                        base = (row['月總板數']*40) + (row['月總空籃']*0.5) + (row['月總空板']*3)
+                        multi = 1.2 if row['月總板數']>=501 else (1.1 if row['月總板數']>=451 else 1.0)
                         return int(base * multi)
                     
-                    y_sum['預估獎金'] = y_sum.apply(calc_y_bonus, axis=1)
-                    st.dataframe(y_sum.style.format({"預估獎金":"${:,}", "總板數":"{:,.0f}"}), use_container_width=True, hide_index=True)
+                    y_sum['預估總獎金'] = y_sum.apply(calc_y_bonus, axis=1)
+                    st.dataframe(y_sum.style.format({"預估總獎金":"${:,}", "月總板數":"{:,.0f}"}), use_container_width=True, hide_index=True)
                 else:
-                    st.write("尚無年度數據")
+                    st.write("目前尚無年度數據。")
 
-            # 2. 月度明細 (恢復原本的每月展開式)
+            # 2. 月度展開 (恢復顯示各月細節)
             unique_months = sorted([m for m in df_all['月份'].unique() if m != 'Unknown'], reverse=True)
             for month in unique_months:
-                is_this_month = (month == datetime.today().strftime('%Y-%m'))
-                with st.expander(f"📅 {month} 報表細節", expanded=is_this_month):
+                with st.expander(f"📅 {month} 營運報表細節", expanded=(month == datetime.today().strftime('%Y-%m'))):
                     df_m = df_all[df_all['月份'] == month].copy()
                     
-                    # 獎金計算
+                    # 計算月獎金
                     m_tp = df_m['合計總板數'].sum()
                     m_b, m_e = df_m['空籃數'].sum(), df_m['空板數'].sum()
                     base_b = (m_tp * 40) + (m_b * 0.5) + (m_e * 3)
                     multi = 1.2 if m_tp >= 501 else (1.1 if m_tp >= 451 else 1.0)
                     
-                    st.success(f"💰 **{month} 預估總獎金：${int(base_b * multi):,}** (總板數: {int(m_tp)} / 階梯: {multi}倍)")
+                    st.success(f"💰 **{month} 預估總獎金：${int(base_b * multi):,}** (總板數: {int(m_tp)} / 倍率: {multi})")
                     
-                    # 路線指標表格
+                    # 路線指標計算
                     rg = df_m.groupby('路線別').agg({'運輸日期':'count', '合計總板數':'sum', '配送板數':'sum', '收貨板數':'sum', '總點數':'mean', '工時':'mean', '行駛里程':'mean'}).reset_index()
                     rg.columns = ['路線別', '趟數', '總板數', '總配板', '總收板', '平均點數', '平均工時', '平均里程']
                     
-                    # 佔比計算
                     rg['收送佔比'] = rg.apply(lambda r: f"送{int(r['總配板']/(r['總配板']+r['總收板'])*100)}% / 收{100-int(r['總配板']/(r['總配板']+r['總收板'])*100)}%" if (r['總配板']+r['總收板'])>0 else "0/0", axis=1)
                     rg['滿載率(%)'] = (rg['總板數'] / (rg['趟數'] * 28)) * 100
-                    # 效益值
-                    rg['效益值'] = rg.apply(lambda r: round(((r['總板數']/r['趟數'])/50)*(5/(r['平均點數'] or 1))*(10/(r['平均工時'] or 1))*(100/(r['平均里程'] or 1))*100, 1), axis=1)
+                    rg['效益值(VRP)'] = rg.apply(lambda r: round(((r['總板數']/r['趟數'])/50)*(5/(r['平均點數'] or 1))*(10/(r['平均工時'] or 1))*(100/(r['平均里程'] or 1))*100, 1), axis=1)
                     
-                    st.dataframe(rg[['路線別', '趟數', '總板數', '收送佔比', '滿載率(%)', '平均里程', '效益值']].style.format({"滿載率(%)":"{:.1f}%"}), use_container_width=True, hide_index=True)
+                    st.dataframe(rg[['路線別', '趟數', '總板數', '收送佔比', '滿載率(%)', '平均工時', '平均里程', '效益值(VRP)']].style.format({"滿載率(%)":"{:.1f}%", "平均工時":"{:.1f} H", "平均里程":"{:.1f} KM", "效益值(VRP)":"{:.1f}"}), use_container_width=True, hide_index=True)
 
         else:
             st.error("找不到欄位標題，請確認試算表格式。")
-    except Exception as e:
-        st.error(f"數據處理異常: {e}")
-else:
-    st.info("💡 試算表已連結。目前資料庫為空。")
+except Exception as e:
+    st.error(f"系統異常：{e}")
