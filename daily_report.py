@@ -48,7 +48,7 @@ def extract_month(date_val):
         return 'Unknown'
 
 # ==========================================
-# 🟢 第一階段：輸入區塊 (保持現狀)
+# 🟢 第一階段：輸入區塊 (完美保留)
 # ==========================================
 try:
     sheet = get_sheet()
@@ -146,17 +146,19 @@ try:
                     st.caption("🎯 當月各路線 VRP 效益指標 (滿分100)")
                     if not df_all[df_all['月份'] == current_month].empty:
                         df_cm = df_all[df_all['月份'] == current_month]
-                        # 對齊公式：以「合計總板數」(SUM) 為基準
+                        # 修正：加入趟數計算，正確求出平均板數
                         route_eff = df_cm.groupby('路線別').agg({
-                            '合計總板數': 'sum', '總點數': 'mean', '工時': 'mean', '行駛里程': 'mean'
+                            '運輸日期': 'count', '合計總板數': 'sum', '總點數': 'mean', '工時': 'mean', '行駛里程': 'mean'
                         }).reset_index()
+                        route_eff.rename(columns={'運輸日期': '趟數'}, inplace=True)
                         
                         def calc_chart_vrp(row):
-                            p = row['合計總板數']
+                            # 關鍵修正：這裡必須是「平均板數」
+                            p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
                             s = row['總點數'] if row['總點數'] > 0 else 1
                             h = row['工時'] if row['工時'] > 0 else 1
                             m = row['行駛里程'] if row['行駛里程'] > 0 else 1
-                            # 完美重現: 100 * (板數 / (點數*里程*工時)) / 0.01 -> 套用 MIN(100, ROUND)
+                            
                             raw_score = 100 * (p / (s * m * h)) / 0.01
                             return int(min(100, round(raw_score, 0)))
                         
@@ -168,7 +170,7 @@ try:
                 st.write("---")
 
                 # ==========================================
-                # 🔴 第三階段：營運報表與獎金明細 (細節微調)
+                # 🔴 第三階段：營運報表與獎金明細 (最終邏輯對齊版)
                 # ==========================================
                 st.markdown("### 📋 營運報表與獎金明細")
                 
@@ -179,10 +181,8 @@ try:
                     if not df_y.empty:
                         y_sum = df_y.groupby('月份').agg({'合計總板數':'sum', '空籃數':'sum', '空板數':'sum', '行駛里程':'sum', '運輸日期':'count'}).reset_index()
                         
-                        # 改名：加上單價說明
                         y_sum.columns = ['月份', '月總板數(40元)', '月總空籃(0.5元)', '月總空板(3元)', '總里程(KM)', '趟數']
                         
-                        # 強制轉換整數，徹底消滅小數點後面的0
                         for col in ['月總板數(40元)', '月總空籃(0.5元)', '月總空板(3元)', '總里程(KM)', '趟數']:
                             y_sum[col] = y_sum[col].astype(int)
                             
@@ -224,7 +224,6 @@ try:
                         st.success(f"💰 **{month} 結算預估總獎金：${int(final_bonus):,}** \n"
                                    f"*(計算基準：[總板數 {m_total_p} 板 × 40元 × 階梯 {multiplier} 倍] ＋ [空籃 {m_baskets} 個 × 0.5元] ＋ [空板 {m_empty_p} 個 × 3元])*")
 
-                        # 將空籃與空板納入路線明細中
                         agg_dict = {
                             '運輸日期': 'count', 
                             '合計總板數': 'sum', 
@@ -239,7 +238,6 @@ try:
                         
                         route_group = df_m.groupby('路線別').agg(agg_dict).reset_index()
                         
-                        # 換上包含價格資訊的新標題
                         rename_dict = {
                             '運輸日期': '趟數', 
                             '合計總板數': '總板數(40元)', 
@@ -256,7 +254,6 @@ try:
                         for col in ['總配板', '總收板', '平均點數', '空籃(0.5元)', '空板(3元)']:
                             if col not in route_group.columns: route_group[col] = 0
 
-                        # 強制轉換為整數，消滅浮點數小數點
                         for col in ['總板數(40元)', '空籃(0.5元)', '空板(3元)']:
                             route_group[col] = route_group[col].fillna(0).astype(int)
 
@@ -269,18 +266,22 @@ try:
                         route_group['收送佔比'] = route_group.apply(calc_pallet_ratio, axis=1)
                         route_group['滿載率(%)'] = (route_group['總板數(40元)'] / (route_group['趟數'] * 28)) * 100
                         
-                        # 終極復刻：MIN(100, ROUND(...))
+                        # ---------------------------------------------------------
+                        # ⚡ 核心修正：完美對齊 Excel 公式
+                        # 公式: =IFERROR(MIN(100,ROUND(100*(平均板數/(點數*里程*時數))/(50/(5*100*10)),0)),"-")
+                        # ---------------------------------------------------------
                         def calc_vrp_user(row):
-                            p = row['總板數(40元)']
+                            # 分子必須是「平均板數」，不能用總數！
+                            p = row['總板數(40元)'] / row['趟數'] if row['趟數'] > 0 else 0
                             s = row['平均點數'] if row['平均點數'] > 0 else 1
                             h = row['平均工時'] if row['平均工時'] > 0 else 1
                             m = row['平均里程'] if row['平均里程'] > 0 else 1
+                            
                             raw_score = 100 * (p / (s * m * h)) / 0.01
                             return int(min(100, round(raw_score, 0)))
                         
                         route_group['效益值(VRP)'] = route_group.apply(calc_vrp_user, axis=1)
                         
-                        # 調整呈現順序，讓空籃/空板也顯示出來
                         display_cols = ['路線別', '趟數', '總板數(40元)', '空籃(0.5元)', '空板(3元)', '收送佔比', '滿載率(%)', '平均工時', '平均里程', '效益值(VRP)']
                         
                         st.dataframe(route_group[display_cols].style.format({
