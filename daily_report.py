@@ -100,10 +100,15 @@ if sheet:
                     df['合計總板數'] = pd.to_numeric(df['配送板數'], errors='coerce').fillna(0) + pd.to_numeric(df['收貨板數'], errors='coerce').fillna(0)
                 else: st.stop()
 
+            # 🛡️ 終極防呆裝甲：缺什麼欄位就自動補 0，保證不斷線
+            core_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '總點數', '配送板數', '收貨板數']
+            for c in core_cols:
+                if c not in df.columns:
+                    df[c] = 0
+
             df['月份'] = df['運輸日期'].apply(extract_month)
-            num_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '總點數', '配送板數', '收貨板數']
-            for col in num_cols: 
-                if col in df.columns: df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            for col in core_cols: 
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
             df['工時'] = df.apply(lambda r: calculate_work_hours(r.get('上班時間','0'), r.get('下班時間','0')), axis=1)
 
@@ -132,7 +137,6 @@ if sheet:
                     def calc_chart_efficiency(r):
                         p = r['合計總板數'] / r['趟數'] if r['趟數'] > 0 else 0
                         s, h, m = r['總點數'] or 1, r['工時'] or 1, r['行駛里程'] or 1
-                        # 純粹的相對效能：板數 / (點數*里程*時數) * 10000
                         return round((p / (s * m * h)) * 10000, 1)
 
                     route_eff['效能指數'] = route_eff.apply(calc_chart_efficiency, axis=1)
@@ -152,7 +156,6 @@ if sheet:
                 if not df_y.empty:
                     y_sum = df_y.groupby('月份').agg({'合計總板數':'sum', '空籃數':'sum', '空板數':'sum', '運輸日期':'count'}).reset_index()
                     
-                    # 依要求：總里程改為平均板數，並對調位置
                     y_sum.rename(columns={'運輸日期': '總趟次', '合計總板數': '月總板數(40元)', '空籃數': '月總空籃(0.5元)', '空板數': '月總空板(3元)'}, inplace=True)
                     y_sum['趟次平均板數'] = (y_sum['月總板數(40元)'] / y_sum['總趟次']).round(1)
                     
@@ -165,7 +168,6 @@ if sheet:
                     
                     y_sum['預估總獎金'] = y_sum.apply(calc_y_bonus, axis=1)
                     
-                    # 重新排列欄位順序
                     display_y_cols = ['月份', '月總板數(40元)', '月總空籃(0.5元)', '月總空板(3元)', '總趟次', '趟次平均板數', '預估總獎金']
                     st.dataframe(y_sum[display_y_cols].style.format({
                         "月總板數(40元)": "{:,}", "月總空籃(0.5元)": "{:,}", "月總空板(3元)": "{:,}",
@@ -185,7 +187,6 @@ if sheet:
                     st.success(f"💰 **{month} 結算預估總獎金：${int(final_bonus):,}** \n"
                                f"*(計算基準：[總板數 {m_tp} 板 × 40元 × 階梯 {multi} 倍] ＋ [空籃 {m_b} 個 × 0.5元] ＋ [空板 {m_e} 個 × 3元])*")
 
-                    # --- 新增：當月每日出勤明細 ---
                     st.markdown("##### 📝 當月每日出勤紀錄")
                     daily_cols = ['運輸日期', '路線別', '上班時間', '下班時間', '工時', '行駛里程', '總點數', '合計總板數', '空籃數', '空板數']
                     safe_daily_cols = [c for c in daily_cols if c in df_m.columns]
@@ -193,22 +194,19 @@ if sheet:
                         "工時": "{:.1f} H", "行駛里程": "{:.1f} KM", "合計總板數": "{:.0f}", "空籃數": "{:.0f}", "空板數": "{:.0f}"
                     }), use_container_width=True, hide_index=True)
 
-                    # --- 路線彙整與效能指標 ---
                     st.markdown("##### 📊 路線彙整與效能指標")
-                    agg_cols = {'運輸日期':'count', '合計總板數':'sum', '總點數':'mean', '工時':'mean', '行駛里程':'mean'}
-                    if '配送板數' in df.columns: agg_cols['配送板數'] = 'sum'
-                    if '收貨板數' in df.columns: agg_cols['收貨板數'] = 'sum'
-                    if '空籃數' in df.columns: agg_cols['空籃數'] = 'sum'
-                    if '空板數' in df.columns: agg_cols['空板數'] = 'sum'
                     
+                    # 🛡️ 安全計算：保證所有要用到的欄位都抓得到
+                    agg_cols = {
+                        '運輸日期':'count', '合計總板數':'sum', '總點數':'mean', 
+                        '工時':'mean', '行駛里程':'mean', '配送板數':'sum', 
+                        '收貨板數':'sum', '空籃數':'sum', '空板數':'sum'
+                    }
                     rg = df_m.groupby('路線別').agg(agg_cols).reset_index()
-                    for c in ['配送板數', '收貨板數', '空籃數', '空板數']:
-                        if c not in rg.columns: rg[c] = 0
-                        
                     rg.columns = ['路線別', '總趟次', '總板數(40元)', '平均點數', '平均工時', '平均里程', '配板', '收板', '空籃(0.5元)', '空板(3元)']
+                    
                     for col in ['總板數(40元)', '空籃(0.5元)', '空板(3元)']: rg[col] = rg[col].astype(int)
 
-                    # 新增：收送比例箭頭邏輯
                     def calc_pallet_ratio(row):
                         total = row['配板'] + row['收板']
                         if total == 0: return "0% / 0% ➖"
@@ -220,7 +218,6 @@ if sheet:
                     rg['收送佔比'] = rg.apply(calc_pallet_ratio, axis=1)
                     rg['滿載率%'] = (rg['總板數(40元)'] / (rg['總趟次'] * 28)) * 100
                     
-                    # 相對效能指數：不需要被 100 侷限，分數越高代表路線越好跑
                     def calc_efficiency_index(r):
                         p = r['總板數(40元)'] / r['總趟次'] if r['總趟次'] > 0 else 0
                         s, h, m = r['平均點數'] or 1, r['平均工時'] or 1, r['平均里程'] or 1
