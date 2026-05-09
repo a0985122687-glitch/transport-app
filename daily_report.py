@@ -4,11 +4,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 import time
 from datetime import datetime, timedelta
-import plotly.express as px  # 導入專業互動式圖表庫
 
 # --- 網頁與版面設定 ---
 st.set_page_config(page_title="運輸日報表分析系統", page_icon="🚛", layout="wide")
-st.title("🚛 運輸日報表戰情室")
+st.title("🚛 運輸日報表分析")
 
 # --- 連線設定 ---
 def get_sheet():
@@ -52,7 +51,7 @@ def extract_month(date_val):
 ROUTE_ORDER = ["中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線"]
 
 # ==========================================
-# 🟢 第一階段：輸入區塊 (維持原樣)
+# 🟢 第一階段：輸入區塊 (穩定保留)
 # ==========================================
 try:
     sheet = get_sheet()
@@ -104,8 +103,11 @@ try:
                     st.rerun()
 
         # ==========================================
-        # 資料清洗與預處理
+        # 資料清洗與防呆轉換
         # ==========================================
+        st.write("---")
+        st.subheader("📊 營運戰情分析與指標")
+        
         all_raw = sheet.get_all_values()
         actual_data = [row for row in all_raw if any(str(cell).strip() for cell in row)]
         
@@ -124,84 +126,70 @@ try:
                 df_all['月份'] = df_all['運輸日期'].apply(extract_month)
                 
                 expected_num_cols = ['行駛里程', '合計總板數', '空籃數', '空板數', '總點數', '配送板數', '收貨板數']
-                for col in [c for c in expected_num_cols if c in df_all.columns]:
+                safe_num_cols = [c for c in expected_num_cols if c in df_all.columns]
+                
+                for col in safe_num_cols:
                     df_all[col] = pd.to_numeric(df_all[col].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
                 
                 df_all['工時'] = df_all.apply(lambda row: calculate_work_hours(row.get('上班時間','00:00'), row.get('下班時間','00:00')), axis=1)
-                
-                # 計算當月專用獎金倍率
-                def calc_bonus(row, m_multiplier):
-                    return (row['合計總板數'] * 40 * m_multiplier) + (row['空籃數'] * 0.5) + (row['空板數'] * 3)
-
                 current_month = datetime.today().strftime('%Y-%m')
 
-                st.write("---")
-                st.subheader("📊 戰情圖表分析 (專業版)")
-
                 # ==========================================
-                # 🟡 第二階段：專業美化圖表區 (使用 Plotly)
+                # 🟡 第二階段：穩定版圖表區 (免安裝套件)
                 # ==========================================
-                # 1. 準備全年度的月統計數據
-                month_group = df_all.groupby('月份').agg({'合計總板數': 'sum', '空籃數': 'sum', '空板數': 'sum'}).reset_index()
-                month_group['倍率'] = month_group['合計總板數'].apply(lambda x: 1.2 if x >= 501 else (1.1 if x >= 451 else 1.0))
-                month_group['預估獎金'] = (month_group['合計總板數'] * 40 * month_group['倍率']) + (month_group['空籃數'] * 0.5) + (month_group['空板數'] * 3)
-                month_group['預估獎金'] = month_group['預估獎金'].astype(int)
-                
-                tab1, tab2 = st.tabs(["📈 產能與獎金趨勢", "🎯 當月效能與工時預警"])
-                
-                with tab1:
-                    col_c1, col_c2 = st.columns(2)
-                    with col_c1:
-                        # 圖 1：每月板數圖表
-                        fig1 = px.bar(month_group, x='月份', y='合計總板數', text='合計總板數', 
-                                      title='🏆 每月總板數趨勢圖', color_discrete_sequence=['#4CAF50'])
-                        fig1.update_traces(textposition='outside')
-                        st.plotly_chart(fig1, use_container_width=True)
-                        
-                    with col_c2:
-                        # 圖 2：獎金對比圖表
-                        fig2 = px.line(month_group, x='月份', y='預估獎金', text='預估獎金', markers=True,
-                                       title='💰 每月預估獎金趨勢 (含空籃/板)', color_discrete_sequence=['#FF9800'])
-                        fig2.update_traces(textposition='top center', textfont_size=12)
-                        st.plotly_chart(fig2, use_container_width=True)
+                # 計算月度獎金給圖表用
+                month_group = df_all.groupby('月份').agg({'合計總板數':'sum', '空籃數':'sum', '空板數':'sum'}).reset_index()
+                def calc_chart_bonus(row):
+                    multi = 1.2 if row['合計總板數'] >= 501 else (1.1 if row['合計總板數'] >= 451 else 1.0)
+                    return int((row['合計總板數'] * 40 * multi) + (row['空籃數'] * 0.5) + (row['空板數'] * 3))
+                month_group['預估獎金'] = month_group.apply(calc_chart_bonus, axis=1)
 
-                with tab2:
-                    col_c3, col_c4 = st.columns(2)
+                c_chart1, c_chart2 = st.columns(2)
+                with c_chart1:
+                    st.caption("🏆 年度每月總板數趨勢")
+                    st.bar_chart(month_group.set_index('月份')['合計總板數'])
+                with c_chart2:
+                    st.caption("💰 年度每月預估獎金趨勢")
+                    st.line_chart(month_group.set_index('月份')['預估獎金'])
+
+                c_chart3, c_chart4 = st.columns(2)
+                with c_chart3:
+                    st.caption("🎯 當月各路線 VRP 效益指標 (滿分100)")
                     if not df_all[df_all['月份'] == current_month].empty:
                         df_cm = df_all[df_all['月份'] == current_month].copy()
                         route_eff = df_cm.groupby('路線別').agg({
                             '運輸日期': 'count', '合計總板數': 'sum', '總點數': 'mean', '工時': 'mean', '行駛里程': 'mean'
-                        }).reset_index().rename(columns={'運輸日期': '趟數'})
+                        }).reset_index()
+                        route_eff.rename(columns={'運輸日期': '趟數'}, inplace=True)
                         
-                        # 圖 3：VRP 效益指標
                         def calc_chart_vrp(row):
                             p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
-                            s, h, m = row['總點數'] if row['總點數'] > 0 else 1, row['工時'] if row['工時'] > 0 else 1, row['行駛里程'] if row['行駛里程'] > 0 else 1
-                            raw_score = 100 * (p / (s * m * h)) / (50 / (5 * 100 * 10))
-                            return int(min(100, round(raw_score, 0)))
+                            s = row['總點數'] if row['總點數'] > 0 else 1
+                            h = row['工時'] if row['工時'] > 0 else 1
+                            m = row['行駛里程'] if row['行駛里程'] > 0 else 1
+                            base_eff = 50 / (5 * 100 * 10)
+                            score = 100 * ((p / (s * m * h)) / base_eff)
+                            return int(min(100, round(score, 0)))
                         
                         route_eff['效益值'] = route_eff.apply(calc_chart_vrp, axis=1)
                         route_eff['路線別'] = pd.Categorical(route_eff['路線別'], categories=ROUTE_ORDER, ordered=True)
                         route_eff = route_eff.sort_values('路線別')
-                        
-                        with col_c3:
-                            fig3 = px.bar(route_eff, x='路線別', y='效益值', text='效益值', 
-                                          title='🎯 當月 VRP 效益指標 (滿分100)', color='效益值', color_continuous_scale='Blues')
-                            fig3.update_layout(coloraxis_showscale=False)
-                            st.plotly_chart(fig3, use_container_width=True)
-
-                        # 圖 4：超時加班預警
-                        with col_c4:
-                            df_cm['超時時數'] = df_cm['工時'].apply(lambda x: max(0, x - 10))
-                            ot_group = df_cm.groupby('路線別')['超時時數'].sum().reset_index()
-                            ot_group['路線別'] = pd.Categorical(ot_group['路線別'], categories=ROUTE_ORDER, ordered=True)
-                            ot_group = ot_group.sort_values('路線別')
-                            fig4 = px.bar(ot_group, x='路線別', y='超時時數', text='超時時數',
-                                          title='⚠️ 當月各路線累計超時加班 (大於10H)', color_discrete_sequence=['#F44336'])
-                            fig4.update_traces(texttemplate='%{text:.1f}H', textposition='outside')
-                            st.plotly_chart(fig4, use_container_width=True)
+                        st.bar_chart(route_eff.set_index('路線別')['效益值'])
                     else:
                         st.info("當月尚無資料可產生效益圖表")
+                
+                with c_chart4:
+                    st.caption("⚠️ 當月加班超時統計 (>10H)")
+                    if not df_all[df_all['月份'] == current_month].empty:
+                        df_ot = df_cm[df_cm['工時'] > 10].copy()
+                        if not df_ot.empty:
+                            df_ot['超時時數'] = df_ot['工時'] - 10
+                            ot_group = df_ot.groupby('路線別')['超時時數'].sum().reset_index()
+                            ot_group['路線別'] = pd.Categorical(ot_group['路線別'], categories=ROUTE_ORDER, ordered=True)
+                            ot_group = ot_group.sort_values('路線別')
+                            st.bar_chart(ot_group.set_index('路線別')['超時時數'])
+                        else:
+                            st.success("🎉 當月各路線皆無超過10小時之紀錄！")
 
                 st.write("---")
 
@@ -210,30 +198,31 @@ try:
                 # ==========================================
                 st.markdown("### 📋 營運報表與獎金明細")
                 
-                # --- 1. 年度總表 ---
                 current_year = datetime.today().strftime('%Y')
-                with st.expander(f"🗓️ {current_year} 年度營運總結報告", expanded=False):
+                with st.expander(f"🗓️ {current_year} 年度營運總結報告 (1-12月)", expanded=False):
                     df_y = df_all[df_all['年份'] == current_year].copy()
                     if not df_y.empty:
-                        y_sum = df_y.groupby('月份').agg({'合計總板數':'sum', '空籃數':'sum', '空板數':'sum', '運輸日期':'count'}).reset_index()
-                        y_sum.rename(columns={'運輸日期': '總趟次', '合計總板數': '月總板數', '空籃數': '月總空籃', '空板數': '月總空板'}, inplace=True)
+                        y_sum = df_y.groupby('月份').agg({'合計總板數':'sum', '空籃數':'sum', '空板數':'sum', '行駛里程':'sum', '運輸日期':'count'}).reset_index()
+                        y_sum.columns = ['月份', '月總板數(40元)', '月總空籃(0.5元)', '月總空板(3元)', '總里程(KM)', '趟數']
                         
-                        # 徹底消除小數點
-                        for col in ['月總板數', '月總空籃', '月總空板', '總趟次']:
+                        # 消滅小數點
+                        for col in ['月總板數(40元)', '月總空籃(0.5元)', '月總空板(3元)', '總里程(KM)', '趟數']:
                             y_sum[col] = y_sum[col].astype(int)
                             
                         def calc_y_bonus(row):
-                            multi = 1.2 if row['月總板數'] >= 501 else (1.1 if row['月總板數'] >= 451 else 1.0)
-                            return int((row['月總板數'] * 40 * multi) + (row['月總空籃'] * 0.5) + (row['月總空板'] * 3))
+                            pallet_bonus = row['月總板數(40元)'] * 40
+                            multi = 1.2 if row['月總板數(40元)'] >= 501 else (1.1 if row['月總板數(40元)'] >= 451 else 1.0)
+                            fixed_bonus = (row['月總空籃(0.5元)'] * 0.5) + (row['月總空板(3元)'] * 3)
+                            return int((pallet_bonus * multi) + fixed_bonus)
                         
                         y_sum['預估總獎金'] = y_sum.apply(calc_y_bonus, axis=1)
-                        st.dataframe(y_sum[['月份', '月總板數', '月總空籃', '月總空板', '總趟次', '預估總獎金']].style.format({
-                            "月總板數": "{:,}", "月總空籃": "{:,}", "月總空板": "{:,}", "總趟次": "{:,}", "預估總獎金":"${:,}"
+                        st.dataframe(y_sum.style.format({
+                            "月總板數(40元)": "{:,}", "月總空籃(0.5元)": "{:,}", "月總空板(3元)": "{:,}",
+                            "總里程(KM)": "{:,}", "預估總獎金":"${:,}"
                         }), use_container_width=True, hide_index=True)
                     else:
                         st.write("目前尚無年度數據。")
 
-                # --- 2. 各月明細與路線彙整 ---
                 unique_months = sorted([m for m in df_all['月份'].unique() if m != 'Unknown'], reverse=True)
                 
                 for month in unique_months:
@@ -241,50 +230,102 @@ try:
                     with st.expander(f"📅 {month} 營運報表細節", expanded=is_expanded):
                         df_m = df_all[df_all['月份'] == month].copy()
                         
-                        # 計算該月總結與倍率
-                        m_tp = int(df_m['合計總板數'].sum())
-                        m_b = int(df_m['空籃數'].sum() if '空籃數' in df_m.columns else 0)
-                        m_e = int(df_m['空板數'].sum() if '空板數' in df_m.columns else 0)
-                        m_multi = 1.2 if m_tp >= 501 else (1.1 if m_tp >= 451 else 1.0)
-                        final_bonus = (m_tp * 40 * m_multi) + (m_b * 0.5) + (m_e * 3)
+                        # 該月總板數與倍率
+                        m_total_p = int(df_m['合計總板數'].sum())
+                        m_baskets = int(df_m['空籃數'].sum() if '空籃數' in df_m.columns else 0)
+                        m_empty_p = int(df_m['空板數'].sum() if '空板數' in df_m.columns else 0)
+                        
+                        multiplier = 1.2 if m_total_p >= 501 else (1.1 if m_total_p >= 451 else 1.0)
+                        final_bonus = (m_total_p * 40 * multiplier) + (m_baskets * 0.5) + (m_empty_p * 3)
                         
                         st.success(f"💰 **{month} 結算預估總獎金：${int(final_bonus):,}** \n"
-                                   f"*(當月倍率: {m_multi} 倍)*")
+                                   f"*(計算基準：[總板數 {m_total_p} 板 × 40元 × 階梯 {multiplier} 倍] ＋ [空籃 {m_baskets} 個 × 0.5元] ＋ [空板 {m_empty_p} 個 × 3元])*")
 
-                        # 📝 A. 當月每日出勤明細 (完美排序、去里程點數、加加班標示與單日獎金)
-                        st.markdown("##### 📝 每日出勤明細 (依日期排序)")
-                        
-                        # 計算單日預估獎金與加班
-                        df_m['合計獎金'] = df_m.apply(lambda r: int(calc_bonus(r, m_multi)), axis=1)
-                        df_m['加班標示'] = df_m['工時'].apply(lambda x: f"⚠️ +{x-10:.1f}H" if x > 10 else "-")
-                        
-                        # 依日期強制排序
+                        # --- A. 每日出勤明細 (完美排序、隱藏不必要欄位、計算單日獎金) ---
+                        st.markdown("##### 📝 每日出勤明細")
+                        # 強制日期正向排序
                         df_m = df_m.sort_values(by='運輸日期', ascending=True)
                         
-                        # 挑選您要的欄位：隱藏里程/點數，保留板數/獎金/工時
-                        daily_cols = ['運輸日期', '路線別', '合計總板數', '空籃數', '空板數', '合計獎金', '工時', '加班標示']
-                        # 整數化
-                        for c in ['合計總板數', '空籃數', '空板數']: df_m[c] = df_m[c].astype(int)
+                        # 單日獎金計算
+                        def calc_daily_bonus(row):
+                            return int((row['合計總板數'] * 40 * multiplier) + (row['空籃數'] * 0.5) + (row['空板數'] * 3))
+                        df_m['合計獎金'] = df_m.apply(calc_daily_bonus, axis=1)
                         
-                        st.dataframe(df_m[daily_cols].style.format({
+                        # 超時 10H 加班標示
+                        def mark_ot(h):
+                            return f"⚠️ +{h-10:.1f}H" if h > 10 else "-"
+                        df_m['加班標示'] = df_m['工時'].apply(mark_ot)
+                        
+                        # 強制整數化
+                        for c in ['合計總板數', '空籃數', '空板數']:
+                            df_m[c] = df_m[c].astype(int)
+                            
+                        daily_display_cols = ['運輸日期', '路線別', '合計總板數', '空籃數', '空板數', '合計獎金', '工時', '加班標示']
+                        st.dataframe(df_m[daily_display_cols].style.format({
                             "合計總板數": "{:,}", "空籃數": "{:,}", "空板數": "{:,}", "合計獎金": "${:,}", "工時": "{:.1f} H"
                         }), use_container_width=True, hide_index=True)
 
-                        # 📊 B. 路線彙整表
+
+                        # --- B. 路線彙整 ---
                         st.markdown("##### 📊 路線 VRP 效益彙整")
-                        agg_dict = {'運輸日期': 'count', '合計總板數': 'sum', '工時': 'mean', '行駛里程': 'mean', '總點數': 'mean'}
-                        route_group = df_m.groupby('路線別').agg(agg_dict).reset_index()
-                        route_group.rename(columns={'運輸日期': '趟數'}, inplace=True)
+                        agg_dict = {
+                            '運輸日期': 'count', '合計總板數': 'sum', '空籃數': 'sum', '空板數': 'sum',
+                            '工時': 'mean', '行駛里程': 'mean'
+                        }
+                        if '配送板數' in df_m.columns: agg_dict['配送板數'] = 'sum'
+                        if '收貨板數' in df_m.columns: agg_dict['收貨板數'] = 'sum'
+                        if '總點數' in df_m.columns: agg_dict['總點數'] = 'mean'
                         
-                        route_group['效益值(VRP)'] = route_group.apply(calc_chart_vrp, axis=1)
+                        route_group = df_m.groupby('路線別').agg(agg_dict).reset_index()
+                        
+                        rename_dict = {
+                            '運輸日期': '趟數', '合計總板數': '總板數(40元)', '空籃數': '空籃', '空板數': '空板', 
+                            '工時': '平均工時', '行駛里程': '平均里程', '配送板數': '總配板', '收貨板數': '總收板', '總點數': '平均點數'
+                        }
+                        route_group.rename(columns=rename_dict, inplace=True)
+                        
+                        for col in ['總配板', '總收板', '平均點數']:
+                            if col not in route_group.columns: route_group[col] = 0
+
+                        for col in ['總板數(40元)', '空籃', '空板']:
+                            route_group[col] = route_group[col].fillna(0).astype(int)
+
+                        def calc_pallet_ratio(row):
+                            total = row['總配板'] + row['總收板']
+                            if total == 0: return "0% / 0%"
+                            del_pct = int((row['總配板'] / total) * 100)
+                            return f"送{del_pct}% / 收{100-del_pct}%"
+                            
+                        route_group['收送佔比'] = route_group.apply(calc_pallet_ratio, axis=1)
+                        route_group['滿載率(%)'] = (route_group['總板數(40元)'] / (route_group['趟數'] * 28)) * 100
+                        
+                        def calc_vrp_user(row):
+                            p = row['總板數(40元)'] / row['趟數'] if row['趟數'] > 0 else 0
+                            s = row['平均點數'] if row['平均點數'] > 0 else 1
+                            h = row['平均工時'] if row['平均工時'] > 0 else 1
+                            m = row['平均里程'] if row['平均里程'] > 0 else 1
+                            
+                            base_efficiency = 50 / (5 * 100 * 10)
+                            current_efficiency = p / (s * m * h)
+                            raw_score = 100 * (current_efficiency / base_efficiency)
+                            
+                            return int(min(100, round(raw_score, 0)))
+                        
+                        route_group['效益值(VRP)'] = route_group.apply(calc_vrp_user, axis=1)
+                        
                         route_group['路線別'] = pd.Categorical(route_group['路線別'], categories=ROUTE_ORDER, ordered=True)
                         route_group = route_group.sort_values('路線別')
                         
-                        display_r_cols = ['路線別', '趟數', '合計總板數', '平均點數', '平均工時', '平均里程', '效益值(VRP)']
-                        st.dataframe(route_group[display_r_cols].style.format({
-                            "合計總板數": "{:,.0f}", "平均點數": "{:.1f}", "平均工時": "{:.1f} H", "平均里程": "{:.1f} KM", "效益值(VRP)": "{:d} 分"
+                        display_cols = ['路線別', '趟數', '總板數(40元)', '平均點數', '平均工時', '平均里程', '收送佔比', '滿載率(%)', '效益值(VRP)']
+                        
+                        st.dataframe(route_group[display_cols].style.format({
+                            "總板數(40元)": "{:,}",
+                            "平均點數": "{:.1f}",
+                            "滿載率(%)": "{:.1f}%",
+                            "平均工時": "{:.1f} H",
+                            "平均里程": "{:.1f} KM",
+                            "效益值(VRP)": "{:d} 分"
                         }), use_container_width=True, hide_index=True)
-
             else:
                 st.error(f"找不到『合計總板數』相關欄位。目前抓到的標題為：{headers}")
         else:
