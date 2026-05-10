@@ -163,25 +163,26 @@ try:
                 st.write("")
                 c_chart3, c_chart4 = st.columns(2)
                 
+                # ✅ 修正點：將公式移出 if 判斷式，確保全域都能讀取到
+                # 🎯 VRP 公式 (效益)
+                def calc_chart_vrp(row):
+                    p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
+                    s, h, m = row['總點數'] if row['總點數'] > 0 else 1, row['工時'] if row['工時'] > 0 else 1, row['行駛里程'] if row['行駛里程'] > 0 else 1
+                    score = 100 * ((p / (s * m * h)) / (50 / (5 * 100 * 10)))
+                    return int(min(100, round(score, 0)))
+                
+                # ⚙️ 稼動率公式 (實質產能飽和度) -> (單趟板數/工時) 相對於 (50板/10H)
+                def calc_utilization(row):
+                    p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
+                    h = row['工時'] if row['工時'] > 0 else 1
+                    util = (p / h) / (50 / 10) * 100
+                    return int(round(util, 0))
+
                 if not df_all[df_all['月份'] == current_month].empty:
                     df_cm = df_all[df_all['月份'] == current_month].copy()
                     route_eff = df_cm.groupby('路線別').agg({
                         '運輸日期': 'count', '合計總板數': 'sum', '總點數': 'mean', '工時': 'mean', '行駛里程': 'mean'
                     }).reset_index().rename(columns={'運輸日期': '趟數'})
-                    
-                    # 🎯 VRP 公式 (效益)
-                    def calc_chart_vrp(row):
-                        p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
-                        s, h, m = row['總點數'] if row['總點數'] > 0 else 1, row['工時'] if row['工時'] > 0 else 1, row['行駛里程'] if row['行駛里程'] > 0 else 1
-                        score = 100 * ((p / (s * m * h)) / (50 / (5 * 100 * 10)))
-                        return int(min(100, round(score, 0)))
-                    
-                    # ⚙️ 稼動率公式 (實質產能飽和度) -> (單趟板數/工時) 相對於 (50板/10H)
-                    def calc_utilization(row):
-                        p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
-                        h = row['工時'] if row['工時'] > 0 else 1
-                        util = (p / h) / (50 / 10) * 100
-                        return int(round(util, 0))
                     
                     route_eff['效益值'] = route_eff.apply(calc_chart_vrp, axis=1)
                     route_eff['實質稼動率(%)'] = route_eff.apply(calc_utilization, axis=1)
