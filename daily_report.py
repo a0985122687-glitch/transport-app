@@ -51,7 +51,7 @@ def extract_month(date_val):
 ROUTE_ORDER = ["中一線", "中二線", "中三線", "中四線", "中五線", "中六線", "中七線"]
 
 # ==========================================
-# 🟢 第一階段：輸入區塊
+# 🟢 第一階段：輸入區塊 (完美保留)
 # ==========================================
 try:
     sheet = get_sheet()
@@ -131,7 +131,7 @@ try:
                 current_month = datetime.today().strftime('%Y-%m')
 
                 # ==========================================
-                # 🟡 第二階段：高階動態圖表區 (Altair 引擎)
+                # 🟡 第二階段：專業動態圖表區 ( Altair 升級版 )
                 # ==========================================
                 c_chart1, c_chart2 = st.columns(2)
                 
@@ -148,8 +148,8 @@ try:
                 with c_chart2:
                     st.caption("🚚 年度雙線滿載率對比 (送 vs 收)")
                     m_ratio = df_all.groupby('月份').agg({'運輸日期':'count', '配送板數':'sum', '收貨板數':'sum'}).reset_index()
-                    m_ratio['送貨滿載率(%)'] = ((m_ratio['配送板數'] / (m_ratio['運輸日期'] * 28)) * 100).astype(int)
-                    m_ratio['收貨滿載率(%)'] = ((m_ratio['收貨板數'] / (m_ratio['運輸日期'] * 28)) * 100).astype(int)
+                    m_ratio['送貨滿載率(%)'] = ((m_ratio['配送板數'] / (m_ratio['運輸日期'] * 28)) * 100).fillna(0).astype(int)
+                    m_ratio['收貨滿載率(%)'] = ((m_ratio['收貨板數'] / (m_ratio['運輸日期'] * 28)) * 100).fillna(0).astype(int)
                     df_melt = m_ratio.melt(id_vars=['月份'], value_vars=['送貨滿載率(%)', '收貨滿載率(%)'], var_name='類別', value_name='滿載率(%)')
                     
                     chart2 = alt.Chart(df_melt).mark_line(point=alt.OverlayMarkDef(filled=True, size=60)).encode(
@@ -163,15 +163,17 @@ try:
                 st.write("")
                 c_chart3, c_chart4 = st.columns(2)
                 
-                # ✅ 修正點：將公式移出 if 判斷式，確保全域都能讀取到
-                # 🎯 VRP 公式 (效益)
+                # 🎯 第二階段圖表專屬公式
                 def calc_chart_vrp(row):
                     p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
-                    s, h, m = row['總點數'] if row['總點數'] > 0 else 1, row['工時'] if row['工時'] > 0 else 1, row['行駛里程'] if row['行駛里程'] > 0 else 1
-                    score = 100 * ((p / (s * m * h)) / (50 / (5 * 100 * 10)))
-                    return int(min(100, round(score, 0)))
+                    s = row['總點數'] if row['總點數'] > 0 else 1
+                    h = row['工時'] if row['工時'] > 0 else 1
+                    m = row['行駛里程'] if row['行駛里程'] > 0 else 1
+                    base_efficiency = 50 / (5 * 100 * 10)
+                    current_efficiency = p / (s * m * h)
+                    raw_score = 100 * (current_efficiency / base_efficiency)
+                    return int(min(100, round(raw_score, 0)))
                 
-                # ⚙️ 稼動率公式 (實質產能飽和度) -> (單趟板數/工時) 相對於 (50板/10H)
                 def calc_utilization(row):
                     p = row['合計總板數'] / row['趟數'] if row['趟數'] > 0 else 0
                     h = row['工時'] if row['工時'] > 0 else 1
@@ -214,7 +216,7 @@ try:
                 st.write("---")
 
                 # ==========================================
-                # 🔴 第三階段：營運報表與獎金明細 (完美對帳版)
+                # 🔴 第三階段：營運報表與獎金明細 (100% 鎖定不動)
                 # ==========================================
                 st.markdown("### 📋 營運報表與獎金明細")
                 
@@ -287,7 +289,19 @@ try:
                             
                         route_group['收送佔比'] = route_group.apply(calc_pallet_ratio, axis=1)
                         route_group['滿載率(%)'] = (route_group['總板數(40元)'] / (route_group['趟數'] * 28)) * 100
-                        route_group['效益值(VRP)'] = route_group.apply(calc_chart_vrp, axis=1)
+                        
+                        # 第三階段專屬公式，避免與圖表區互相干擾
+                        def calc_stage3_vrp(row):
+                            p = row['總板數(40元)'] / row['趟數'] if row['趟數'] > 0 else 0
+                            s = row['平均點數'] if row['平均點數'] > 0 else 1
+                            h = row['平均工時'] if row['平均工時'] > 0 else 1
+                            m = row['平均里程'] if row['平均里程'] > 0 else 1
+                            base_efficiency = 50 / (5 * 100 * 10)
+                            current_efficiency = p / (s * m * h)
+                            raw_score = 100 * (current_efficiency / base_efficiency)
+                            return int(min(100, round(raw_score, 0)))
+                            
+                        route_group['效益值(VRP)'] = route_group.apply(calc_stage3_vrp, axis=1)
                         
                         route_group['路線別'] = pd.Categorical(route_group['路線別'], categories=ROUTE_ORDER, ordered=True)
                         route_group = route_group.sort_values('路線別')
